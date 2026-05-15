@@ -10,8 +10,8 @@ Referenced upstream materials:
 - NVIDIA Nsight Compute Profiling Guide: https://docs.nvidia.com/nsight-compute/ProfilingGuide/
 - NVIDIA Nsight Compute CLI Guide: https://docs.nvidia.com/nsight-compute/NsightComputeCli/
 - slowlyC/agent-gpu-skills: https://github.com/slowlyC/agent-gpu-skills
-- slowlyC cuda_skill references/ncu-guide.md
-- slowlyC cuda_skill references/ncu-docs/ProfilingGuide.md
+- slowlyC cuda_skill references/ncu-guide.md: https://github.com/slowlyC/agent-gpu-skills/blob/main/cuda_skill/references/ncu-guide.md
+- slowlyC cuda_skill references/ncu-docs/ProfilingGuide.md: https://github.com/slowlyC/agent-gpu-skills/blob/main/cuda_skill/references/ncu-docs/ProfilingGuide.md
 
 ## v3 Architecture Reference Change
 

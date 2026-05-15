@@ -2,9 +2,9 @@
 
 # Kernel Profiler Skill
 
-**A kernel-only GPU profiling workflow for Nsight Compute and portable profiler backends**
+**An agent skill for GPU kernel/operator profiling with Nsight Compute and portable profiler backends**
 
-`CUDA` · `Triton` · `Nsight Compute` · `Source/SASS/PTX attribution` · `Regression analysis` · `Vendor-portable metrics`
+`Cursor` · `Claude Code` · `Codex` · `Gemini CLI` · `CUDA` · `Triton` · `Nsight Compute`
 
 </div>
 
@@ -12,7 +12,7 @@
 
 ## Overview
 
-Kernel Profiler Skill provides a structured workflow for investigating the performance of a single GPU kernel or a tightly related kernel family. It is designed for cases where the performance question is already scoped to the kernel level: launch configuration, occupancy, memory behavior, compute pipeline use, warp stalls, instruction mix, source-line attribution, and before/after regression.
+Kernel Profiler Skill is an agent skill for GPU kernel/operator profiling in Cursor, Claude Code, Codex, and Gemini CLI. It provides a structured workflow for investigating a single GPU kernel or a tightly related kernel family, including launch configuration, occupancy, memory behavior, compute pipeline use, warp stalls, instruction mix, source-line attribution, and before/after regression.
 
 The default backend is NVIDIA Nsight Compute (`ncu`). The backend layer is intentionally isolated so the same profiling plan can be adapted to other GPU vendors by replacing the profiler adapter, metric aliases, and architecture database.
 
@@ -254,8 +254,8 @@ docs/vendor-conformance.md                    backend capability checks
 docs/legal/NOTICE.md                          attribution and redistribution notes
 
 references/nvidia/architectures/gpu_specs.yaml      machine-readable NVIDIA GPU limits
-references/nvidia/ncu-guide.md                      Nsight Compute workflow notes
-references/nvidia/profilingguide.md                 profiling guide reference copy/summary
+references/nvidia/ncu-guide.md                      link to upstream Nsight Compute workflow notes
+references/nvidia/ProfilingGuide.md                 link to upstream profiling guide reference
 references/nvidia/ncu-metric-map.md                 metric-to-bottleneck map
 references/nvidia/vendor-adapter-nvidia-ncu.yaml    default backend adapter
 references/portable/metric-aliases.yaml             vendor-neutral metric aliases
@@ -589,10 +589,10 @@ This skill is built around a portable kernel-profiling workflow. The default bac
 
 ### Third-party reference material
 
-The following files are derived from or adapted from the `cuda-skill` references in the open-source repository `slowlyC/agent-gpu-skills`:
+The following files are local pointer files to `cuda-skill` references in the open-source repository `slowlyC/agent-gpu-skills`:
 
 - `references/nvidia/ncu-guide.md`
-- `references/nvidia/profilingguide.md`
+- `references/nvidia/ProfilingGuide.md`
 
 Original source repository:
 
@@ -608,15 +608,15 @@ Attribution:
   - `references/ncu-docs/ProfilingGuide.md`
   - `references/best-practices-guide/`
 
-These files are included as reference material for agent-side lookup and workflow grounding. If redistributing this skill, keep this attribution section and preserve any upstream license and notice files required by `slowlyC/agent-gpu-skills`.
+These files intentionally do not embed the upstream documentation text. If redistributing this skill, keep this attribution section and follow any upstream license and notice requirements from `slowlyC/agent-gpu-skills`.
 
 ### Local reference layout
 
 - `references/nvidia/ncu-guide.md`  
-  Nsight Compute command and workflow reference, adapted from `slowlyC/agent-gpu-skills`.
+  Pointer to the upstream Nsight Compute command and workflow reference in `slowlyC/agent-gpu-skills`.
 
-- `references/nvidia/profilingguide.md`  
-  Nsight Compute profiling guide reference, adapted from `slowlyC/agent-gpu-skills`.
+- `references/nvidia/ProfilingGuide.md`  
+  Pointer to the upstream Nsight Compute profiling guide reference in `slowlyC/agent-gpu-skills`.
 
 - `references/nvidia/vendor-adapter-nvidia-ncu.yaml`  
   Backend adapter that maps the portable profiling workflow to Nsight Compute commands, sections, sets, and report artifacts.

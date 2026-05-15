@@ -1,6 +1,6 @@
 # Nsight Compute Profiling Guide Index
 
-This file is a compact lookup index for `references/nvidia/profilingguide.md` or the official NVIDIA Nsight Compute Profiling Guide.
+This file is a compact lookup index for `references/nvidia/ProfilingGuide.md` or the official NVIDIA Nsight Compute Profiling Guide.
 
 It is intentionally short. Use it to route kernel-profiling questions to the right Nsight Compute concepts, sections, and search terms before opening the full guide.
 
@@ -11,7 +11,7 @@ It is intentionally short. Use it to route kernel-profiling questions to the rig
    - `references/portable/metric-aliases.yaml`
    - `references/nvidia/vendor-adapter-nvidia-ncu.yaml`
    - `references/nvidia/architectures/gpu_specs.yaml`
-3. If a precise NVIDIA definition is required, open the official guide link recorded in `references/nvidia/profilingguide.md` or browse the NVIDIA Nsight Compute documentation.
+3. If a precise NVIDIA definition is required, open the official guide link recorded in `references/nvidia/ProfilingGuide.md` or browse the NVIDIA Nsight Compute documentation.
 4. Do not read the full guide as the first step for routine kernel profiling.
 
 ## External source

@@ -2,9 +2,9 @@
 
 # 🚀 Kernel Profiler Skill
 
-**面向 CUDA 与 Triton Kernel 的标准化 GPU Profiling 工作流**
+**面向 GPU Kernel / 算子 Profile 的 Agent Skill**
 
-`Nsight Compute` · `CUDA` · `Triton` · `源码/SASS/PTX 归因` · `回归对比` · `可迁移 Backend`
+`Cursor` · `Claude Code` · `Codex` · `Gemini CLI` · `CUDA` · `Triton` · `Nsight Compute`
 
 </div>
 
@@ -12,7 +12,7 @@
 
 ## 项目定位
 
-Kernel Profiler Skill 用于分析单个 GPU kernel 或一组高度相关的 kernel。它关注的是 kernel 级问题：launch 配置、occupancy、memory hierarchy、compute pipeline、warp stall、instruction mix、source/SASS/PTX 热点和优化前后回归对比。
+Kernel Profiler Skill 是面向 Cursor、Claude Code、Codex 和 Gemini CLI 的 GPU Kernel / 算子 Profile Agent Skill。它用于分析单个 GPU kernel 或一组高度相关的 kernel，关注 launch 配置、occupancy、memory hierarchy、compute pipeline、warp stall、instruction mix、source/SASS/PTX 热点和优化前后回归对比。
 
 默认 profiler backend 是 NVIDIA Nsight Compute (`ncu`)。backend、metric alias 和 GPU 架构数据库是分离的，因此可以迁移到其他厂商 profiler。
 
@@ -245,7 +245,7 @@ docs/legal/NOTICE.md
 
 references/nvidia/architectures/gpu_specs.yaml
 references/nvidia/ncu-guide.md
-references/nvidia/profilingguide.md
+references/nvidia/ProfilingGuide.md
 references/nvidia/ncu-metric-map.md
 references/nvidia/vendor-adapter-nvidia-ncu.yaml
 references/portable/metric-aliases.yaml
@@ -531,10 +531,10 @@ python3 scripts/vendor_conformance_check.py \
 
 ### 第三方参考资料
 
-以下文件来自或改写自开源仓库 `slowlyC/agent-gpu-skills` 中 `cuda-skill` 的 references：
+以下文件是指向开源仓库 `slowlyC/agent-gpu-skills` 中 `cuda-skill` references 的本地链接说明：
 
 - `references/nvidia/ncu-guide.md`
-- `references/nvidia/profilingguide.md`
+- `references/nvidia/ProfilingGuide.md`
 
 原始来源仓库：
 
@@ -550,15 +550,15 @@ python3 scripts/vendor_conformance_check.py \
   - `references/ncu-docs/ProfilingGuide.md`
   - `references/best-practices-guide/`
 
-这些文件作为 agent 查询和 workflow grounding 的参考资料包含在本项目中。如果重新分发本 skill，应保留本署名部分，并保留 `slowlyC/agent-gpu-skills` 上游许可证和 notice 要求的相关文件。
+这些文件不再内嵌上游文档正文，只保留链接和用途说明。如果重新分发本 skill，应保留本署名部分，并遵守 `slowlyC/agent-gpu-skills` 上游许可证和 notice 要求。
 
 ### 本地 reference 目录说明
 
 - `references/nvidia/ncu-guide.md`  
-  Nsight Compute 命令和 workflow 参考，来自 `slowlyC/agent-gpu-skills`。
+  指向 `slowlyC/agent-gpu-skills` 中 Nsight Compute 命令和 workflow 参考的链接说明。
 
-- `references/nvidia/profilingguide.md`  
-  Nsight Compute profiling guide 参考，来自 `slowlyC/agent-gpu-skills`。
+- `references/nvidia/ProfilingGuide.md`  
+  指向 `slowlyC/agent-gpu-skills` 中 Nsight Compute profiling guide 参考的链接说明。
 
 - `references/nvidia/vendor-adapter-nvidia-ncu.yaml`  
   NVIDIA Nsight Compute backend adapter，用于把通用 profiling 流程映射到 NCU 命令、section、set 和报告产物。

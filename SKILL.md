@@ -19,8 +19,8 @@ Before running or interpreting a profile, consult the relevant reference files:
 
 - `references/nvidia/vendor-adapter-nvidia-ncu.yaml` for the default Nsight Compute backend commands, filters, sets, sections, export modes, and capability declarations.
 - `references/nvidia/ncu-guide.md` for the common `ncu` command flow: kernel filters, launch skip/count, basic/full sets, section collection, raw export, source export, and GUI handoff.
-- `references/nvidia/profilingguide.index.md` as the first stop for official Nsight Compute concepts; use it to find the right topic without reading the full guide.
-- `references/nvidia/profilingguide.md` when a precise Nsight Compute definition is needed: replay behavior, metric structure, hardware model, sections/rules, source metrics, NVTX/range profiling, roofline, or compatibility details.
+- `references/nvidia/ProfilingGuide.index.md` as the first stop for official Nsight Compute concepts; use it to find the right topic without reading the full guide.
+- `references/nvidia/ProfilingGuide.md` when a precise Nsight Compute definition is needed: replay behavior, metric structure, hardware model, sections/rules, source metrics, NVTX/range profiling, roofline, or compatibility details.
 - `references/nvidia/ncu-metric-map.md` to translate profiling questions into NVIDIA section names, metric families, search terms, and bottleneck evidence.
 - `references/nvidia/architectures/README.md` to understand the architecture reference layout and lookup order.
 - `references/nvidia/architectures/gpu_specs.yaml` for machine-readable GPU limits, product/chip fields, memory bandwidth, cache size, SM count, shared memory, registers, and occupancy ceilings.
