@@ -67,7 +67,7 @@ When invoked this way, perform the workflow below:
 4. Use the kernel hint directly as the first profiler filter. For `hgemm_byzj_v0`, generate `filter_mode: regex` and `filter: .*hgemm_byzj_v0.*`. Do not run discovery before this step.
 5. Validate unsupported or out-of-scope requirements recorded in `notes.unsupported_or_deferred_requirements` before collection.
 6. Execute the staged profile by calling `scripts/ncu_collect_kernel_profile.sh`. If `privilege.mode` is `full_sudo`, pass `--sudo` and the exact `profiling.ncu_bin` path with `--ncu-bin`. If the agent can run profiling itself, start with `--stages basic,speed-of-light`, inspect `details/metrics_summary.json`, then call the same script again with only the evidence-justified stages such as `memory`, `compute`, `occupancy`, `roofline`, or `source`. Use `--stages all` only when explicitly requested or when broad evidence is required.
-7. If Nsight Compute requires privileged counters and non-sudo profiling fails, stop collection and output the NOPASSWD setup guide in the Privilege model section. Do not generate a manual sudo handoff and do not ask for or use a sudo password.
+7. If Nsight Compute requires privileged counters or `sudo -n` reports that a password is required, immediately stop the current profile attempt, send the NOPASSWD setup guide in the Privilege model section to the user, and wait for the next user message before doing any more profiling. Do not try another profile stage, do not run discovery, do not generate a handoff script, and do not ask for or use a sudo password.
 8. Use the existing scripts to extract compact metrics, generate hotspot tables, run optional visuals/comparison reports, then write the normalized final report under `./profile/<kernel_profile_id>/`.
 
 Manual `profile-target.yaml` editing is a supported secondary workflow. Direct script invocation is the default execution model.
@@ -187,7 +187,7 @@ Plaintext password storage is not supported. Do not write passwords into YAML, s
 
 #### NOPASSWD setup guide
 
-When `ncu` reports `ERR_NVGPUCTRPERM`, or `sudo -n` fails because a password is required, output this guide to the user:
+When `ncu` reports `ERR_NVGPUCTRPERM`, or `sudo -n` fails because a password is required, output this guide to the user and stop until the user starts the next turn:
 
 ```bash
 which ncu
@@ -223,6 +223,8 @@ sudo -n /absolute/path/to/selected/cuda/bin/ncu --version
 sudo -n /absolute/path/to/selected/cuda/bin/ncu --list-sections
 nvidia-smi || true
 ```
+
+After sending this guide, do not continue profiling in the same turn. The user must configure NOPASSWD and then start a new request.
 
 ## Output contract
 

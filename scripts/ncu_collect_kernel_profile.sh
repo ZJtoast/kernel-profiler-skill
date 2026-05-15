@@ -26,6 +26,48 @@ Options:
 USAGE
 }
 
+print_nopasswd_guide() {
+  local ncu_path="$1"
+  cat <<GUIDE
+
+NCU 需要 sudo 权限，但当前 agent 不能交互式输入 sudo 密码。
+请先为当前 CUDA 环境中的精确 ncu 路径配置 NOPASSWD，然后在下一次对话中重新发起 profile。
+
+步骤 1：在你要 profile 的 CUDA 环境中找到 ncu。
+
+  which ncu
+  readlink -f \$(which ncu)
+
+记住 readlink -f 输出的绝对路径，例如：
+
+  /usr/local/cuda-12.4/bin/ncu
+
+步骤 2：创建 sudoers 规则。
+
+  sudo visudo -f /etc/sudoers.d/kernel-profiler-ncu
+
+写入一行，替换 USERNAME 和 ncu 路径：
+
+  USERNAME ALL=(root) NOPASSWD: $ncu_path
+
+例如当前用户名是 USERNAME：
+
+  USERNAME ALL=(root) NOPASSWD: $ncu_path
+
+步骤 3：验证免密是否成功。
+
+  sudo -n $ncu_path --version
+  sudo -n $ncu_path --list-sections
+
+步骤 4：多 CUDA 环境必须固定同一个 ncu。
+
+  scripts/ncu_collect_kernel_profile.sh --ncu-bin "$ncu_path" --sudo ...
+
+不要配置 NOPASSWD: ALL，也不要把 sudo 密码写入文件、命令、日志或 profile/sudokey。
+本次 profile 已停止；配置完成后请在下一次对话中重新发起 profile。
+GUIDE
+}
+
 TARGET_CMD=""
 KERNEL_REGEX=""
 KERNEL_NAME="target_kernel"
@@ -146,6 +188,25 @@ if [[ "$USE_SUDO" == "1" && "${EUID:-$(id -u)}" != "0" ]]; then
   SUDO_PREFIX=(sudo -n)
 fi
 
+if [[ "${#SUDO_PREFIX[@]}" -gt 0 ]]; then
+  tmp_err="$(mktemp)"
+  set +e
+  "${SUDO_PREFIX[@]}" "$NCU_BIN" --version >/dev/null 2>"$tmp_err"
+  sudo_status=$?
+  set -e
+  if [[ "$sudo_status" -ne 0 ]]; then
+    if grep -Eqi "password is required|a password is required|permission|not permitted|Operation not permitted" "$tmp_err"; then
+      print_nopasswd_guide "$NCU_BIN" >&2
+      rm -f "$tmp_err"
+      exit 77
+    fi
+    cat "$tmp_err" >&2
+    rm -f "$tmp_err"
+    exit "$sudo_status"
+  fi
+  rm -f "$tmp_err"
+fi
+
 mkdir -p "$OUTPUT_DIR/details" "$OUTPUT_DIR/visual"
 COMMANDS="$OUTPUT_DIR/commands.sh"
 ENVFILE="$OUTPUT_DIR/details/00_environment.txt"
@@ -199,33 +260,6 @@ run_ncu() {
     fi
     return "$status"
   fi
-}
-
-print_nopasswd_guide() {
-  local ncu_path="$1"
-  cat <<GUIDE
-
-Nsight Compute needs privileged performance counters, but this agent cannot interactively type sudo passwords.
-Configure exact-path NOPASSWD for the CUDA environment you want this profile to use:
-
-  which ncu
-  readlink -f \$(which ncu)
-  sudo visudo -f /etc/sudoers.d/kernel-profiler-ncu
-
-Add one line, replacing USERNAME and the path with the exact output above:
-
-  USERNAME ALL=(root) NOPASSWD: $ncu_path
-
-Then verify:
-
-  sudo -n $ncu_path --version
-
-For servers with multiple CUDA environments, keep using this same ncu path in profiling:
-
-  scripts/ncu_collect_kernel_profile.sh --ncu-bin "$ncu_path" --sudo ...
-
-Do not grant NOPASSWD: ALL, and do not store sudo passwords in files.
-GUIDE
 }
 
 if [[ "$STAGE_BASIC" == "1" ]]; then

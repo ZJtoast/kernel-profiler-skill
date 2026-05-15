@@ -142,7 +142,7 @@ def template() -> dict:
         "visualization": {
             "enabled": False,
             "format": "png",
-            "require_python_packages": ["pandas", "matplotlib", "pyyaml"],
+            "require_python_packages": ["matplotlib", "pyyaml"],
         },
         "notes": {
             "user_requirements": "",

@@ -2,6 +2,8 @@
 
 当 `ncu` 报 `ERR_NVGPUCTRPERM`，或 agent 使用 `sudo -n ncu ...` 时提示需要密码，说明当前环境不能非交互式访问性能计数器。这个 skill 不读取、不保存、不管道传输 sudo 密码；需要为选定 CUDA 环境里的精确 `ncu` 路径配置窄范围 `NOPASSWD`。
 
+出现这种情况时，本次 profile 必须立刻停止。配置完成后，请在下一次对话中重新发起 profile。
+
 ## 1. 确认当前 CUDA 环境的 ncu 路径
 
 ```bash
@@ -29,10 +31,10 @@ sudo visudo -f /etc/sudoers.d/kernel-profiler-ncu
 USERNAME ALL=(root) NOPASSWD: /usr/local/cuda-12.4/bin/ncu
 ```
 
-例如用户是 `zhoujie`：
+例如当前用户名是 `USERNAME`：
 
 ```text
-zhoujie ALL=(root) NOPASSWD: /usr/local/cuda-12.4/bin/ncu
+USERNAME ALL=(root) NOPASSWD: /usr/local/cuda-12.4/bin/ncu
 ```
 
 不要写 `NOPASSWD: ALL`。
