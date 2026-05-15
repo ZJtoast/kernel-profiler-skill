@@ -1,9 +1,11 @@
 schema_version: 3.0
 profile_id: null
 created_at: null
-target_file: profile-target.yaml
+target_file: ./profile/<profile_id>/profile-target.yaml
 backend: nvidia-ncu
-ncu_bin: ncu
+ncu_command: ncu
+ncu_path_file: ./profile/ncu_path
+ncu_detected_path: null
 runtime: native
 runtime_options:
   triton_enabled: false

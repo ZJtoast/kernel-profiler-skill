@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate profile-target.yaml from a compact kernel profiling request.
+"""Generate ./profile/<profile-id>/profile-target.yaml from a compact request.
 
 The generator resolves request-level defaults without doing a separate discovery pass.
 By default, the kernel name is used directly as the profiler filter hint. Discovery is
@@ -10,6 +10,7 @@ import argparse
 import re
 import shlex
 import sys
+from datetime import datetime
 from pathlib import Path
 
 try:
@@ -58,6 +59,16 @@ def default_filter_from_kernel(kernel: str, mode: str) -> tuple[str, str]:
     if mode != "auto":
         return mode, kernel
     return "regex", f".*{re.escape(kernel)}.*"
+
+
+def sanitize_profile_id(value: str) -> str:
+    cleaned = re.sub(r"[^A-Za-z0-9_.-]+", "_", value.strip())
+    cleaned = cleaned.strip("._-")
+    return cleaned or "target_kernel"
+
+
+def is_legacy_default_output(path: Path) -> bool:
+    return path.name == "profile-target.yaml" and str(path.parent) in ("", ".")
 
 
 def template() -> dict:
@@ -169,11 +180,14 @@ def main() -> int:
     ap.add_argument("--filter", default=None)
     ap.add_argument("--requirement", action="append", default=[], help="Extra natural-language requirement; may be repeated")
     ap.add_argument("--privilege-mode", default=None, choices=["none", "full_sudo"])
-    ap.add_argument("--ncu-bin", default=None, help="Exact Nsight Compute CLI path for the CUDA environment to profile with.")
-    ap.add_argument("--output", default="profile-target.yaml")
+    ap.add_argument("--ncu-bin", default=None, help="Nsight Compute CLI command for non-sudo mode. full_sudo mode reads ./profile/ncu_path.")
+    ap.add_argument("--profile-id", default=None, help="Profile directory name under --output-root. Default: <kernel>_<YYYYMMDD_HHMMSS>.")
+    ap.add_argument("--output-root", default="./profile", help="Profile output root. Default: ./profile.")
+    ap.add_argument("--output", default=None, help="Target YAML path. Default: ./profile/<profile-id>/profile-target.yaml.")
     ns = ap.parse_args()
 
     cfg = template()
+    cfg["profiling"]["output_root"] = ns.output_root
     # Resolve target command. Full --target-cmd remains the most precise option.
     if ns.target_cmd:
         parts = shlex.split(ns.target_cmd)
@@ -208,6 +222,8 @@ def main() -> int:
         cfg["target"]["args"] = ns.args
     cfg["target"]["working_directory"] = ns.workdir
     cfg["kernel"]["name"] = ns.kernel
+    profile_id = ns.profile_id or f"{sanitize_profile_id(ns.kernel)}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+    cfg["kernel"]["profile_id"] = profile_id
 
     if ns.runtime != "auto":
         cfg["target"]["runtime"] = ns.runtime
@@ -253,15 +269,26 @@ def main() -> int:
     if ns.ncu_bin:
         cfg["profiling"]["ncu_bin"] = ns.ncu_bin
 
+    ncu_path_file = Path("profile") / "ncu_path"
+    ncu_path_file.parent.mkdir(parents=True, exist_ok=True)
+    if not ncu_path_file.exists():
+        ncu_path_file.write_text("/usr/local/cuda/bin/ncu\n", encoding="utf-8")
+
     for hint in UNSUPPORTED_HINTS:
         if hint in lower:
             cfg["notes"]["unsupported_or_deferred_requirements"].append(
                 f"'{hint}' is unsupported or outside kernel-only profiling scope. Plaintext sudo password storage is not supported."
             )
 
-    out = Path(ns.output)
+    if ns.output:
+        requested = Path(ns.output)
+        out = Path(ns.output_root) / profile_id / "profile-target.yaml" if is_legacy_default_output(requested) else requested
+    else:
+        out = Path(ns.output_root) / profile_id / "profile-target.yaml"
+    out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(yaml.safe_dump(cfg, sort_keys=False, allow_unicode=True), encoding="utf-8")
     print(f"Wrote {out}")
+    print(f"Profile directory: {out.parent}")
     print(f"Kernel filter: {cfg['kernel']['filter_mode']}:{cfg['kernel']['filter']}")
     print(f"Privilege mode: {cfg['privilege']['mode']}")
     if cfg["notes"]["unsupported_or_deferred_requirements"]:

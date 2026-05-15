@@ -19,9 +19,9 @@ Use this script map as the default implementation path:
 
 | Task | Required script |
 |---|---|
-| Generate `profile-target.yaml` from a compact request | `python3 scripts/generate_profile_target.py ...` |
+| Generate `./profile/<id>/profile-target.yaml` from a compact request | `python3 scripts/generate_profile_target.py ...` |
 | Collect Nsight Compute profile stages | `scripts/ncu_collect_kernel_profile.sh ...` |
-| Discover kernels only as fallback | `scripts/discover_kernels.sh profile-target.yaml ./profile/<id>/details` |
+| Discover kernels only as fallback | `scripts/discover_kernels.sh ./profile/<id>/profile-target.yaml ./profile/<id>/details` |
 | Extract compact metrics from raw CSV | `python3 scripts/extract_ncu_metrics.py ...` |
 | Generate source/SASS/PTX hotspot table | `python3 scripts/generate_source_hotspots.py ...` |
 | Run optional bottleneck rules | `python3 scripts/bottleneck_decision_engine.py ...` |
@@ -63,18 +63,18 @@ When invoked this way, perform the workflow below:
 
 1. Parse the request into structured intent: kernel name/hint, runtime hints such as native CUDA or Python/Triton, visualization, source mapping, Roofline, regression, privilege preference, and any extra constraints.
 2. Resolve the target command from repository context when it is not explicitly supplied. Search common benchmark and build entry points such as `README`, `CMakeLists.txt`, `Makefile`, `build/`, `bin/`, `examples/`, `bench*`, `scripts/run*`, and project-specific benchmark docs.
-3. Call `scripts/generate_profile_target.py` to create `profile-target.yaml`. Do not hand-write the file unless the generator cannot express the requested target or a small post-generation patch is required.
+3. Call `scripts/generate_profile_target.py` to create `./profile/<kernel_profile_id>/profile-target.yaml`. Do not hand-write the file unless the generator cannot express the requested target or a small post-generation patch is required.
 4. Use the kernel hint directly as the first profiler filter. For `hgemm_byzj_v0`, generate `filter_mode: regex` and `filter: .*hgemm_byzj_v0.*`. Do not run discovery before this step.
 5. Validate unsupported or out-of-scope requirements recorded in `notes.unsupported_or_deferred_requirements` before collection.
-6. Execute the staged profile by calling `scripts/ncu_collect_kernel_profile.sh`. Default to `--stages auto`: the collector runs `basic`, reads compact metrics, then runs one evidence-justified follow-up stage such as `memory`, `compute`, `occupancy`, or `speed-of-light`. If `privilege.mode` is `full_sudo`, pass `--sudo`; keep `profiling.ncu_bin` as `ncu` unless the user explicitly configured a non-default CUDA environment or sudo `secure_path` requires an absolute path. Use `--stages all` only when explicitly requested.
+6. Execute the staged profile by calling `scripts/ncu_collect_kernel_profile.sh`. Default to `--stages auto`: the collector runs `basic`, reads compact metrics, then runs one evidence-justified follow-up stage such as `memory`, `compute`, `occupancy`, or `speed-of-light`. If `privilege.mode` is `full_sudo`, pass `--sudo`; the collector must read the profiler path from `./profile/ncu_path` and ignore ad hoc `ncu` path guessing. Use `--stages all` only when explicitly requested.
 7. If Nsight Compute requires privileged counters or `sudo -n` reports that a password is required, immediately stop the current profile attempt, send the NOPASSWD setup guide in the Privilege model section to the user, and wait for the next user message before doing any more profiling. Do not try another profile stage, do not run discovery, do not generate a handoff script, and do not ask for or use a sudo password.
 8. Use the existing scripts to extract compact metrics, generate hotspot tables, run optional visuals/comparison reports, then write the normalized final report under `./profile/<kernel_profile_id>/`.
 
-Manual `profile-target.yaml` editing is a supported secondary workflow. Direct script invocation is the default execution model.
+Manual `./profile/<id>/profile-target.yaml` editing is a supported secondary workflow. Direct script invocation is the default execution model.
 
 ## Input policy
 
-The canonical intermediate file is `profile-target.yaml`. The preferred entry point is a natural-language request; generate this file automatically whenever the target command and kernel hint can be resolved.
+The canonical intermediate file is `./profile/<kernel_profile_id>/profile-target.yaml`. The preferred entry point is a natural-language request; generate this file automatically whenever the target command and kernel hint can be resolved.
 
 Minimum natural-language input:
 
@@ -123,8 +123,7 @@ Example:
 python3 scripts/generate_profile_target.py \
   --target-cmd "./build/bench --m 4096 --n 4096 --k 4096" \
   --kernel hgemm_byzj_v0 \
-  --requirement "visual report, source, roofline" \
-  --output profile-target.yaml
+  --requirement "visual report, source, roofline"
 ```
 
 Expected kernel section:
@@ -146,7 +145,7 @@ privilege:
   mode: "none"                    # none | full_sudo
   password_storage: "forbidden"
 profiling:
-  ncu_bin: "ncu"                  # keep default unless sudo secure_path requires an absolute path
+  ncu_bin: "ncu"                  # non-sudo only; full_sudo reads ./profile/ncu_path
 ```
 
 ### Mode 1 — `none`
@@ -155,47 +154,50 @@ Run profiler commands without sudo. This is the default and should be attempted 
 
 ### Mode 2 — `full_sudo`
 
-Run the collector with non-interactive `sudo -n` for the active CUDA environment's `ncu`. This mode is allowed only when:
+Run the collector with non-interactive `sudo -n` for the path stored in `./profile/ncu_path`. This mode is allowed only when:
 
 - current process is already root,
-- `/etc/sudoers` grants narrow `NOPASSWD` permission for the default `ncu` absolute path detected by the collector.
+- `/etc/sudoers` grants narrow `NOPASSWD` permission for the exact path stored in `./profile/ncu_path`.
+
+At skill start, ensure `./profile/ncu_path` exists. If it does not exist, create it with this default content:
+
+```text
+/usr/local/cuda/bin/ncu
+```
+
+Non-sudo mode runs `ncu` directly and does not need this file. Sudo mode must read this file and use its single path value for every profiler command.
 
 Plaintext password storage is not supported. Do not write passwords into YAML, scripts, logs, commands, environment variables, shell history, or files such as `profile/sudokey`. Do not pipe passwords into `sudo -S`, read passwords from files, or auto-type passwords. Privilege must only be used for the profiler command path.
 
 #### NOPASSWD setup guide
 
-When `ncu` reports `ERR_NVGPUCTRPERM`, or `sudo -n` fails because a password is required, output this guide to the user and stop until the user starts the next turn:
+When `ncu` reports `ERR_NVGPUCTRPERM`, or `sudo -n "$(cat ./profile/ncu_path)" ...` fails because a password is required, output this guide to the user and stop until the user starts the next turn:
 
 ```bash
-# Use the ncu path printed by the collector, for example:
-#   /usr/local/cuda-12.4/bin/ncu
+command -v ncu
+readlink -f "$(command -v ncu)"
 sudo visudo -f /etc/sudoers.d/kernel-profiler-ncu
 ```
 
-Add exactly one narrow rule, replacing `USERNAME` and the path with the collector-detected `ncu` absolute path:
+Ask the user to choose one of the printed paths, configure exactly that path, then write the same path into `./profile/ncu_path`:
 
 ```text
 USERNAME ALL=(root) NOPASSWD: /absolute/path/to/selected/cuda/bin/ncu
 ```
 
+```bash
+mkdir -p ./profile
+printf '%s\n' '/absolute/path/to/selected/cuda/bin/ncu' > ./profile/ncu_path
+```
+
 Verify:
 
 ```bash
-sudo -n /absolute/path/to/selected/cuda/bin/ncu --version
-sudo -n ncu --version
+sudo -n "$(cat ./profile/ncu_path)" --version
+sudo -n "$(cat ./profile/ncu_path)" --list-sections
 ```
 
-For servers with multiple CUDA environments, load the same CUDA module or PATH before profiling so `ncu` still resolves to the configured path. Pass `--ncu-bin /absolute/path/to/selected/cuda/bin/ncu` only when sudo `secure_path` prevents `sudo -n ncu` from resolving the active CUDA environment.
-
-Recommended preflight after setup:
-
-```bash
-sudo -n /absolute/path/to/selected/cuda/bin/ncu --version
-sudo -n /absolute/path/to/selected/cuda/bin/ncu --list-sections
-nvidia-smi || true
-```
-
-After sending this guide, do not continue profiling in the same turn. The user must configure NOPASSWD and then start a new request.
+After sending this guide, do not continue profiling in the same turn. The user must configure NOPASSWD, update `./profile/ncu_path`, and then start a new request.
 
 ## Output contract
 
@@ -203,6 +205,7 @@ Always generate:
 
 ```text
 ./profile/{kernel_name_profileid}/
+├── profile-target.yaml
 ├── final_report.md
 ├── run_manifest.yaml
 ├── commands.sh
@@ -235,12 +238,13 @@ The final report must include target summary, kernel filter, profiler version, p
 ### Phase 0 — Preflight
 
 1. Resolve target path, working directory, environment variables, privilege policy, and kernel filter.
-2. If a kernel name is available but no explicit filter is provided, generate a regex filter from the kernel name and proceed.
-3. Enter discovery mode only if the filter is missing, produces no match, or needs disambiguation.
-4. Detect profiler availability.
-5. Capture environment in `details/00_environment.txt`.
-6. Check source mapping requirement. Prefer release build with line info, e.g. `nvcc -O3 -lineinfo`. Do not use debug-only `-G` for performance profiling unless explicitly requested.
-7. Generate stable profile id from `{sanitized_kernel_name}_{YYYYMMDD_HHMMSS}` unless provided.
+2. Ensure `./profile/ncu_path` exists with default content `/usr/local/cuda/bin/ncu`; do not overwrite it if the user already edited it.
+3. If a kernel name is available but no explicit filter is provided, generate a regex filter from the kernel name and proceed.
+4. Enter discovery mode only if the filter is missing, produces no match, or needs disambiguation.
+5. Detect profiler availability. In non-sudo mode use `ncu`; in sudo mode use `sudo -n "$(cat ./profile/ncu_path)"`.
+6. Capture environment in `details/00_environment.txt`.
+7. Check source mapping requirement. Prefer release build with line info, e.g. `nvcc -O3 -lineinfo`. Do not use debug-only `-G` for performance profiling unless explicitly requested.
+8. Generate stable profile id from `{sanitized_kernel_name}_{YYYYMMDD_HHMMSS}` unless provided.
 
 ### Phase 1 — Kernel selection and discovery fallback
 
@@ -253,7 +257,7 @@ regex:.*hgemm_byzj_v0.*
 Run discovery only if the generated filter is absent, matches no kernel, or returns ambiguous candidates:
 
 ```bash
-scripts/discover_kernels.sh profile-target.yaml ./profile/<id>/details
+scripts/discover_kernels.sh ./profile/<id>/profile-target.yaml ./profile/<id>/details
 ```
 
 Selection policy:
@@ -323,9 +327,10 @@ Collector requirements:
 
 1. Run `basic` first, write `details/01_basic_raw.csv`, and refresh `details/metrics_summary.json`.
 2. Select exactly one follow-up stage from compact basic metrics unless the user explicitly requested more.
-3. Write raw CSV directly. Do not generate `.ncu-rep`; do not print profiler data to the agent context.
+3. Write raw CSV directly. Do not generate `.ncu-rep`; do not print profiler data to the agent context; do not persist routine `*_stdout.txt` or `*_stderr.txt` files in `details/`.
 4. Keep terminal output concise: stage name, selected follow-up, and artifact directory only.
-5. Use `--stages all` only when explicitly requested.
+5. If the kernel filter matches no profiled kernel, stop immediately, report the kernel/filter/target reason, and do not continue to later stages or privilege guidance.
+6. Use `--stages all` only when explicitly requested.
 
 Auto follow-up selection:
 
@@ -345,7 +350,7 @@ Use existing scripts only:
 
 - Extract compact metrics: `python3 scripts/extract_ncu_metrics.py --input ./profile/<id>/details/metrics_raw.csv --output-dir ./profile/<id>/details`
 - Retry source hotspots: `python3 scripts/generate_source_hotspots.py --input ./profile/<id>/details/07_source_raw.csv --output ./profile/<id>/details/source_hotspots.csv`
-- Optional bottleneck rules: `python3 scripts/bottleneck_decision_engine.py --target profile-target.yaml --metrics ./profile/<id>/details/metrics_summary.json --rules <rules.yaml> --output ./profile/<id>/details/bottleneck_decision.json`
+- Optional bottleneck rules: `python3 scripts/bottleneck_decision_engine.py --target ./profile/<id>/profile-target.yaml --metrics ./profile/<id>/details/metrics_summary.json --rules <rules.yaml> --output ./profile/<id>/details/bottleneck_decision.json`
 - Optional comparison: `python3 scripts/compare_profiles.py --current ./profile/<id> --baseline auto --tolerance-pct 2.0 --output ./profile/<id>/comparison/regression_report.md`
 - Optional visual report: `python3 scripts/visualize_profile_report.py ./profile/<id>/final_report.md ./profile/<id>/details ./profile/<id>/visual/profile_summary.png`
 

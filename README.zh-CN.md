@@ -29,7 +29,7 @@ Kernel Profiler Skill 是面向 Cursor、Claude Code、Codex 和 Gemini CLI 的 
 
 `scripts/` 目录是这个 skill 的可执行实现。Agent 应直接调用这些脚本，不要重新生成等价的 shell 或 Python 逻辑：
 
-- `scripts/generate_profile_target.py`：生成 `profile-target.yaml`
+- `scripts/generate_profile_target.py`：生成 `./profile/<profile_id>/profile-target.yaml`
 - `scripts/ncu_collect_kernel_profile.sh`：执行分阶段 profiling
 - `scripts/discover_kernels.sh`：仅作为 kernel 选择 fallback
 - `scripts/extract_ncu_metrics.py`、`scripts/generate_source_hotspots.py`、`scripts/compare_profiles.py`、`scripts/visualize_profile_report.py`：执行后处理
@@ -64,13 +64,13 @@ Copy-Item -Recurse -Force . "$env:USERPROFILE\.codex\skills\kernel-profiler-skil
 
 1. 解析请求：kernel hint 为 `hgemm_byzj_v0`，开启可视化，默认 profile level 为 `basic`，默认 backend 为 `nvidia-ncu`。
 2. 如果请求没有给出可执行文件或命令，从当前仓库中解析 benchmark 入口，例如 `README`、`CMakeLists.txt`、`Makefile`、`build/`、`bin/`、`examples/`、benchmark 脚本和 run 脚本。
-3. 调用 `scripts/generate_profile_target.py` 生成 `profile-target.yaml`。
+3. 调用 `scripts/generate_profile_target.py` 生成 `./profile/<profile_id>/profile-target.yaml`。
 4. 直接用 kernel 名称生成初始 filter。`hgemm_byzj_v0` 默认生成 `.*hgemm_byzj_v0.*`。
 5. 调用 `scripts/ncu_collect_kernel_profile.sh --stages auto`，collector 会先跑 `basic`，读取 `details/metrics_summary.json`，再只补跑一个由证据支持的阶段，例如 `memory`、`compute`、`occupancy` 或 `speed-of-light`。只有用户明确要求时才跑 `--stages all`。
 6. 需要 source hotspot、对比或可视化时，继续调用现有脚本生成。
 7. 最终产物写入 `./profile/<kernel_name>_<profile_id>/`。
 
-手动方式仍然支持：可以从 `assets/templates/profile-target.yaml` 手写 target，也可以生成后手动修改。直接调用底层脚本是默认执行方式。
+手动方式仍然支持：可以从 `assets/templates/profile-target.yaml` 手写 target，也可以生成后手动修改。target 文件应放在对应 profile 目录下，例如 `./profile/hgemm_byzj_v0_20260515_120000/profile-target.yaml`。
 
 当 agent 已经解析出 benchmark 命令后，对上面请求通常会生成类似命令：
 
@@ -78,8 +78,7 @@ Copy-Item -Recurse -Force . "$env:USERPROFILE\.codex\skills\kernel-profiler-skil
 python3 scripts/generate_profile_target.py \
   --target-cmd "./build/bench_gemm --m 4096 --n 4096 --k 4096 --iters 100" \
   --kernel hgemm_byzj_v0 \
-  --requirement "visual report" \
-  --output profile-target.yaml
+  --requirement "visual report"
 ```
 
 生成的 kernel 部分应类似：
@@ -98,7 +97,7 @@ Discovery 只作为 fallback：没有 kernel 名称、过滤失败或过滤结�
 
 ### Target 文件生成
 
-一次 profile 由 `profile-target.yaml` 描述。可以从 `assets/templates/profile-target.yaml` 手写，也可以用脚本生成。
+一次 profile 由对应 profile 目录下的 `profile-target.yaml` 描述。可以从 `assets/templates/profile-target.yaml` 手写，也可以用脚本生成。
 
 生成器支持：
 
@@ -160,19 +159,20 @@ Triton 支持包括：
 | 模式                   | 说明                                                                    |
 | ---------------------- | ----------------------------------------------------------------------- |
 | `none`               | 不使用 sudo。                                                           |
-| `full_sudo`          | 使用 `sudo -n` 执行当前环境的 `ncu`；要求 root 或 sudoers 已为 agent 检测到的默认 `ncu` 绝对路径配置窄范围 `NOPASSWD`。 |
+| `full_sudo`          | 使用 `sudo -n "$(cat ./profile/ncu_path)"` 执行 profiler；要求 root 或 sudoers 已为 `./profile/ncu_path` 中的路径配置窄范围 `NOPASSWD`。 |
 
-不实现明文 sudo 密码保存。密码不得进入 YAML、脚本、日志、环境变量、shell history、命令、报告或 `profile/sudokey` 之类的文件。遇到必须 sudo 才能使用 `ncu` 的情况，agent 应立刻停止本次 profile，输出 [Nsight Compute NOPASSWD 配置指南](docs/ncu-nopasswd-guide.zh-CN.md)，并使用 collector 已检测到的默认 `ncu` 绝对路径指导用户配置 `NOPASSWD`。
+不实现明文 sudo 密码保存。密码不得进入 YAML、脚本、日志、环境变量、shell history、命令、报告或 `profile/sudokey` 之类的文件。skill 启动时会确保 `./profile/ncu_path` 存在，默认内容为 `/usr/local/cuda/bin/ncu`。遇到必须 sudo 才能使用 `ncu` 的情况，agent 应立刻停止本次 profile，输出 [Nsight Compute NOPASSWD 配置指南](docs/ncu-nopasswd-guide.zh-CN.md)，要求用户运行 `command -v ncu` 和 `readlink -f "$(command -v ncu)"`，选择一个路径配置 `NOPASSWD`，并把同一路径写入 `./profile/ncu_path`。
 
-多 CUDA 环境中，配置了哪个 `ncu` 路径，后续 profile 前就必须加载同一个 CUDA module / PATH，使脚本里的 `ncu` 仍然解析到同一路径：
+多 CUDA 环境中，配置了哪个 `ncu` 路径，后续 sudo profile 就必须使用同一个 `./profile/ncu_path`：
 
 ```bash
+mkdir -p ./profile
+printf '%s\n' '/usr/local/cuda-12.9/bin/ncu' > ./profile/ncu_path
+
 scripts/ncu_collect_kernel_profile.sh \
   --sudo \
   ...
 ```
-
-只有当 sudo `secure_path` 导致 `sudo -n ncu` 无法解析时，才显式传入同一个绝对路径 `--ncu-bin /usr/local/cuda-12.4/bin/ncu`。
 
 ### 指标抽取
 
@@ -288,7 +288,7 @@ scripts/vendor_conformance_check.py
 
 ## `profile-target.yaml` 参数说明
 
-`profile-target.yaml` 是自然语言请求、采集脚本和最终报告之间的标准化契约。正常流程中它由 agent 自动生成，但字段保持可读，方便必要时手动修改。
+`./profile/<profile_id>/profile-target.yaml` 是自然语言请求、采集脚本和最终报告之间的标准化契约。正常流程中它由 agent 自动生成，但字段保持可读，方便必要时手动修改。
 
 ### `schema_version`
 
@@ -355,7 +355,7 @@ schema 版本号，当前为 `3.0`。
 | `enable_source_mapping`  | 可用时开启 source/SASS/PTX 归因。       |
 | `enable_visual_report`   | 开启可视化报告。                        |
 | `extra_profiler_options` | backend-specific 额外参数。             |
-| `ncu_bin`                | Nsight Compute CLI 命令，默认 `ncu`；只有 sudo `secure_path` 或非默认 CUDA 环境需要时才写绝对路径。 |
+| `ncu_bin`                | 非 sudo 模式的 Nsight Compute CLI 命令，默认 `ncu`；`full_sudo` 模式读取 `./profile/ncu_path`。 |
 | `output_root`            | profile 输出根目录。                    |
 
 ### `privilege`
@@ -365,7 +365,7 @@ schema 版本号，当前为 `3.0`。
 | 字段                                | 含义                                                                |
 | ----------------------------------- | ------------------------------------------------------------------- |
 | `mode`                            | `none` 或 `full_sudo`。                                      |
-| `full_sudo_policy`                | 限制 sudo 只能用于 root 或 agent 检测到的默认 `ncu` 绝对路径的 `NOPASSWD`。       |
+| `full_sudo_policy`                | 限制 sudo 只能用于 root 或 `./profile/ncu_path` 中精确路径的 `NOPASSWD`。       |
 | `password_storage`                | 必须保持 `forbidden`。                                            |
 | `forbidden`                       | 禁止保存、读取、打印、管道传输或自动键入 sudo 密码。             |
 | `forbidden`                       | 密码和权限使用的禁止项。                                            |
@@ -427,8 +427,7 @@ fallback kernel discovery 设置。对于已经命名的 kernel，discovery 不�
 python3 scripts/generate_profile_target.py \
   --target-cmd "./build/bench_gemm --m 4096 --n 4096 --k 4096 --iters 100" \
   --kernel hgemm_byzj_v0 \
-  --requirement "visual report, source, roofline" \
-  --output profile-target.yaml
+  --requirement "visual report, source, roofline"
 ```
 
 执行首轮 profile：
@@ -474,8 +473,7 @@ python3 scripts/generate_profile_target.py \
   --runtime python-triton \
   --target-cmd "python3 bench_triton_hgemm.py --m 4096 --n 4096 --k 4096 --iters 100" \
   --kernel hgemm_byzj_v0 \
-  --requirement "triton, visual report, source, roofline" \
-  --output profile-target.yaml
+  --requirement "triton, visual report, source, roofline"
 ```
 
 执行 profile：
@@ -496,6 +494,7 @@ scripts/ncu_collect_kernel_profile.sh \
 
 ```text
 profile/<kernel_name>_<profile_id>/
+├── profile-target.yaml
 ├── final_report.md
 ├── run_manifest.yaml
 ├── details/

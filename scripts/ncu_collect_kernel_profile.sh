@@ -13,64 +13,64 @@ Options:
   --launch-count N          Matching launches to profile. Default: 1
   --devices ID              Optional ncu --devices value.
   --ncu-bin CMD             Nsight Compute CLI command. Default: $NCU_BIN or ncu.
-                            Default profiling keeps using "ncu" from the active CUDA environment.
+                            Ignored in sudo mode; sudo mode reads ./profile/ncu_path.
+  --ncu-path-file FILE      Sudo-mode ncu path state file. Default: ./profile/ncu_path.
   --full                    Also run --set full as details/08_full.
   --no-source               Skip source/SASS collection.
   --extra "ARGS"            Extra raw ncu options appended before target command.
   --runtime NAME           Target runtime label: native | python | python-triton. Default: native.
   --nvtx-range NAME        Add Nsight Compute NVTX include filter for a named range.
   --sudo                  Run ncu through non-interactive sudo (-n) when not already root.
-                          Requires root or narrow NOPASSWD for the detected ncu path.
+                          Requires root or narrow NOPASSWD for ./profile/ncu_path.
   --stages LIST            Comma-separated stages to run. Default: auto.
                            Names: auto,all,basic,speed-of-light,memory,compute,occupancy,roofline,source,full.
 USAGE
 }
 
 print_nopasswd_guide() {
-  local ncu_cmd="${1:-ncu}"
+  local ncu_path_file="${1:-./profile/ncu_path}"
   local ncu_path="${2:-}"
   if [[ -z "$ncu_path" ]]; then
-    ncu_path="/absolute/path/to/active/cuda/bin/ncu"
+    ncu_path="/usr/local/cuda/bin/ncu"
   fi
   cat <<GUIDE
 
 NCU 需要 sudo 权限，但当前 agent 不能交互式输入 sudo 密码。
-本次 profile 已停止。请先为 agent 已确认的当前 CUDA 环境 ncu 路径配置窄范围 NOPASSWD，然后在下一次对话中重新发起 profile。
+本次 profile 已停止。请先选择一个 ncu 绝对路径，配置窄范围 NOPASSWD，并把该路径写入 $ncu_path_file。
 
-agent 当前使用的 ncu 命令：
-
-  $ncu_cmd
-
-agent 检测到的默认 ncu 绝对路径：
+当前 $ncu_path_file 内容：
 
   $ncu_path
 
-步骤 1：创建 sudoers 规则。
+步骤 1：在你准备 profile 的 CUDA 环境中运行：
+
+  command -v ncu
+  readlink -f "\$(command -v ncu)"
+
+通常第一行是当前 PATH 命中的 ncu，第二行是软链接解析后的真实路径。
+请选择你要固定使用的那一个路径，例如：
+
+  /usr/local/cuda-12.9/bin/ncu
+
+步骤 2：创建 sudoers 规则。
 
   sudo visudo -f /etc/sudoers.d/kernel-profiler-ncu
 
-写入一行，替换 USERNAME，并使用上面 agent 检测到的 ncu 绝对路径：
+写入一行，替换 USERNAME 和你选择的 ncu 绝对路径：
 
-  USERNAME ALL=(root) NOPASSWD: $ncu_path
+  USERNAME ALL=(root) NOPASSWD: /usr/local/cuda-12.9/bin/ncu
 
 USERNAME 是 \`whoami\` 输出的登录用户名。不要写真实用户名到本 skill 的文件里。
 
-步骤 2：验证免密是否成功。
+步骤 3：把同一个路径写入 $ncu_path_file。
 
-  sudo -n $ncu_path --version
-  sudo -n ncu --version
-  sudo -n $ncu_path --list-sections
+  mkdir -p ./profile
+  printf '%s\n' '/usr/local/cuda-12.9/bin/ncu' > "$ncu_path_file"
 
-步骤 3：多 CUDA 环境必须固定同一个 ncu。
+步骤 4：验证免密是否成功。
 
-后续 profile 前加载同一个 CUDA module / PATH，让 \`ncu\` 仍然解析到：
-
-  $ncu_path
-
-正常情况下脚本会继续直接执行 \`ncu\`，不需要在每个 profile 命令里写绝对路径。
-只有当服务器的 sudo secure_path 导致 \`sudo -n ncu\` 无法解析时，才临时使用：
-
-  scripts/ncu_collect_kernel_profile.sh --ncu-bin "$ncu_path" --sudo ...
+  sudo -n "\$(cat "$ncu_path_file")" --version
+  sudo -n "\$(cat "$ncu_path_file")" --list-sections
 
 不要配置 NOPASSWD: ALL，也不要把 sudo 密码写入文件、命令、日志或 profile/sudokey。
 本次 profile 已停止；配置完成后请在下一次对话中重新发起 profile。
@@ -85,6 +85,9 @@ LAUNCH_SKIP="10"
 LAUNCH_COUNT="1"
 DEVICES=""
 NCU_BIN="${NCU_BIN:-ncu}"
+PROFILE_ROOT="./profile"
+NCU_PATH_FILE=""
+DEFAULT_SUDO_NCU_PATH="/usr/local/cuda/bin/ncu"
 RUN_FULL="0"
 RUN_SOURCE="1"
 EXTRA=""
@@ -104,6 +107,7 @@ while [[ $# -gt 0 ]]; do
     --launch-count) LAUNCH_COUNT="$2"; shift 2 ;;
     --devices) DEVICES="$2"; shift 2 ;;
     --ncu-bin) NCU_BIN="$2"; shift 2 ;;
+    --ncu-path-file) NCU_PATH_FILE="$2"; shift 2 ;;
     --full) RUN_FULL="1"; shift ;;
     --no-source) RUN_SOURCE="0"; shift ;;
     --extra) EXTRA="$2"; shift 2 ;;
@@ -212,7 +216,35 @@ resolve_ncu_path_for_guide() {
   fi
 }
 
-NCU_DETECTED_PATH="$(resolve_ncu_path_for_guide "$NCU_BIN")"
+init_ncu_path_file() {
+  if [[ -z "$NCU_PATH_FILE" ]]; then
+    NCU_PATH_FILE="$PROFILE_ROOT/ncu_path"
+  fi
+  mkdir -p "$(dirname "$NCU_PATH_FILE")"
+  if [[ ! -f "$NCU_PATH_FILE" ]]; then
+    printf '%s\n' "$DEFAULT_SUDO_NCU_PATH" > "$NCU_PATH_FILE"
+  fi
+}
+
+read_ncu_path_file() {
+  init_ncu_path_file
+  local value
+  value="$(sed -n 's/\r$//; /^[[:space:]]*$/d; 1p' "$NCU_PATH_FILE" 2>/dev/null || true)"
+  if [[ -z "$value" ]]; then
+    value="$DEFAULT_SUDO_NCU_PATH"
+    printf '%s\n' "$value" > "$NCU_PATH_FILE"
+  fi
+  printf '%s\n' "$value"
+}
+
+init_ncu_path_file
+
+if [[ "$USE_SUDO" == "1" ]]; then
+  NCU_BIN="$(read_ncu_path_file)"
+  NCU_DETECTED_PATH="$NCU_BIN"
+else
+  NCU_DETECTED_PATH="$(resolve_ncu_path_for_guide "$NCU_BIN")"
+fi
 
 if [[ "$USE_SUDO" == "1" && "${EUID:-$(id -u)}" != "0" ]]; then
   SUDO_PREFIX=(sudo -n)
@@ -225,14 +257,13 @@ if [[ "${#SUDO_PREFIX[@]}" -gt 0 ]]; then
   sudo_status=$?
   set -e
   if [[ "$sudo_status" -ne 0 ]]; then
-    if grep -Eqi "password is required|a password is required|permission|not permitted|Operation not permitted" "$tmp_err"; then
-      print_nopasswd_guide "$NCU_BIN" "$NCU_DETECTED_PATH" >&2
-      rm -f "$tmp_err"
-      exit 77
+    echo "[profile] sudo ncu preflight failed for $(cat "$NCU_PATH_FILE")." >&2
+    if [[ -s "$tmp_err" ]]; then
+      cat "$tmp_err" >&2
     fi
-    cat "$tmp_err" >&2
+    print_nopasswd_guide "$NCU_PATH_FILE" "$NCU_DETECTED_PATH" >&2
     rm -f "$tmp_err"
-    exit "$sudo_status"
+    exit 77
   fi
   rm -f "$tmp_err"
 fi
@@ -253,6 +284,7 @@ chmod +x "$COMMANDS"
   echo "runtime: $RUNTIME"
   echo "stages: $STAGES"
   echo "ncu_command: $NCU_BIN"
+  echo "ncu_path_file: $NCU_PATH_FILE"
   echo "ncu_detected_path: $NCU_DETECTED_PATH"
   if [[ -n "$NVTX_RANGE" ]]; then echo "nvtx_range: $NVTX_RANGE"; fi
   echo
@@ -275,16 +307,40 @@ fi
 
 COLLECTED_STAGES=()
 
+is_kernel_miss_log() {
+  grep -Eqi "No kernels? (were )?profiled|No kernels? matched|No matching kernels?|No kernels? selected|No launches? (were )?profiled|No profiled kernels?|No kernels? found" "$@" 2>/dev/null
+}
+
+is_privilege_log() {
+  grep -Eqi "ERR_NVGPUCTRPERM|password is required|a password is required|sudo:.*password|Operation not permitted|not permitted|permission denied" "$@" 2>/dev/null
+}
+
+print_kernel_miss_and_exit() {
+  local label="$1"
+  cat >&2 <<MISS
+[profile] $label stopped: kernel filter matched no profiled kernel.
+
+Kernel name: $KERNEL_NAME
+Kernel regex: $KERNEL_REGEX
+Target command: $TARGET_CMD
+
+Profile 已停止。请检查 kernel 名称、regex、launch skip/count、目标命令是否真的执行了该 kernel。
+如果 kernel 名称不确定，请下一次请求时允许 discovery fallback。
+MISS
+  exit 78
+}
+
 run_ncu_output() {
   local label="$1"; shift
   local output_name="$1"; shift
   local output_file="$OUTPUT_DIR/details/$output_name"
-  local stderr_file="${output_file%.*}_stderr.txt"
+  local stderr_file
+  stderr_file="$(mktemp)"
 
   {
     printf '%q ' "${SUDO_PREFIX[@]}" "$NCU_BIN" "${DEVICE_ARGS[@]}" "$@" "${FILTER[@]}" "${WINDOW[@]}"
     if [[ -n "$EXTRA" ]]; then printf '%s ' "$EXTRA"; fi
-    printf '%s > %q 2> %q\n' "$TARGET_CMD" "$output_file" "$stderr_file"
+    printf '%s > %q\n' "$TARGET_CMD" "$output_file"
   } >> "$COMMANDS"
 
   echo "[profile] $label -> details/$output_name"
@@ -294,15 +350,29 @@ run_ncu_output() {
   local status=$?
   set -e
   if [[ "$status" -ne 0 ]]; then
-    if grep -Eqi "ERR_NVGPUCTRPERM|password is required|a password is required|permission|not permitted|Operation not permitted" "$stderr_file"; then
-      print_nopasswd_guide "$NCU_BIN" "$NCU_DETECTED_PATH" >&2
-    else
-      echo "[profile] $label failed; see details/$(basename "$stderr_file")" >&2
+    if is_kernel_miss_log "$stderr_file" "$output_file"; then
+      rm -f "$stderr_file" "$output_file"
+      print_kernel_miss_and_exit "$label"
     fi
-    return "$status"
+    if is_privilege_log "$stderr_file"; then
+      rm -f "$stderr_file" "$output_file"
+      print_nopasswd_guide "$NCU_PATH_FILE" "$NCU_DETECTED_PATH" >&2
+      exit 77
+    fi
+    echo "[profile] $label failed with status $status." >&2
+    if [[ -s "$stderr_file" ]]; then
+      sed -n '1,20p' "$stderr_file" >&2
+    fi
+    rm -f "$stderr_file"
+    exit "$status"
   fi
+  if is_kernel_miss_log "$stderr_file" "$output_file"; then
+    rm -f "$stderr_file" "$output_file"
+    print_kernel_miss_and_exit "$label"
+  fi
+  rm -f "$stderr_file"
   if [[ ! -s "$output_file" ]]; then
-    echo "[profile] warning: $label produced an empty output file" >&2
+    print_kernel_miss_and_exit "$label"
   fi
   COLLECTED_STAGES+=("$label")
 }
@@ -313,8 +383,7 @@ refresh_metrics() {
     python3 "$(dirname "$0")/extract_ncu_metrics.py" \
       --input "$OUTPUT_DIR/details/metrics_raw.csv" \
       --output-dir "$OUTPUT_DIR/details" \
-      > "$OUTPUT_DIR/details/extract_metrics_stdout.txt" \
-      2> "$OUTPUT_DIR/details/extract_metrics_stderr.txt" || true
+      >/dev/null 2>&1 || true
   fi
 }
 
@@ -394,12 +463,15 @@ run_stage_by_name() {
       run_ncu_output "occupancy" "05_occupancy_launch_raw.csv" --section LaunchStats --section Occupancy --section SchedulerStats --section WarpStateStats --page raw --csv
       ;;
     roofline)
-      local sections_file="$OUTPUT_DIR/details/06_roofline_sections.txt"
-      local sections_err="$OUTPUT_DIR/details/06_roofline_sections_stderr.txt"
+      local sections_file sections_err
+      sections_file="$(mktemp)"
+      sections_err="$(mktemp)"
       if "${SUDO_PREFIX[@]}" "$NCU_BIN" --list-sections > "$sections_file" 2> "$sections_err" && grep -qi "SpeedOfLight_RooflineChart" "$sections_file"; then
+        rm -f "$sections_file" "$sections_err"
         run_ncu_output "roofline" "06_roofline_raw.csv" --section SpeedOfLight_RooflineChart --page raw --csv
       else
-        echo "Roofline section not found for current ncu; see details/06_roofline_sections.txt." > "$OUTPUT_DIR/details/06_roofline_missing.txt"
+        rm -f "$sections_file" "$sections_err"
+        echo "Roofline section not found for current ncu." > "$OUTPUT_DIR/details/06_roofline_missing.txt"
         echo "[profile] roofline skipped; section not found"
       fi
       ;;
@@ -451,14 +523,12 @@ if [[ -f "$OUTPUT_DIR/details/07_source_raw.csv" ]]; then
   python3 "$(dirname "$0")/generate_source_hotspots.py" \
     --input "$OUTPUT_DIR/details/07_source_raw.csv" \
     --output "$OUTPUT_DIR/details/source_hotspots.csv" \
-    > "$OUTPUT_DIR/details/source_hotspots_stdout.txt" \
-    2> "$OUTPUT_DIR/details/source_hotspots_stderr.txt" || true
+    >/dev/null 2>&1 || true
 elif [[ ! -f "$OUTPUT_DIR/details/source_hotspots.csv" ]]; then
   python3 "$(dirname "$0")/generate_source_hotspots.py" \
     --input /dev/null \
     --output "$OUTPUT_DIR/details/source_hotspots.csv" \
-    > "$OUTPUT_DIR/details/source_hotspots_stdout.txt" \
-    2> "$OUTPUT_DIR/details/source_hotspots_stderr.txt" || true
+    >/dev/null 2>&1 || true
 fi
 
 cat > "$OUTPUT_DIR/run_manifest.yaml" <<MANIFEST
@@ -466,6 +536,7 @@ profile_id: "$(basename "$OUTPUT_DIR")"
 created_at: "$(date -Iseconds)"
 backend: "nvidia-ncu"
 ncu_command: "$NCU_BIN"
+ncu_path_file: "$NCU_PATH_FILE"
 ncu_detected_path: "$NCU_DETECTED_PATH"
 runtime: "$RUNTIME"
 privilege:

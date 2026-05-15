@@ -10,7 +10,7 @@ sudo_strategy:
   default_policy: none
   allowed_policies: [none, full_sudo]
   password_handling: never_store_never_pipe
-  privileged_command_policy: detected_default_ncu_path_nopasswd
+  privileged_command_policy: profile_ncu_path_file_nopasswd
 capabilities:
   can_discover_kernel: true
   can_filter_kernel: true

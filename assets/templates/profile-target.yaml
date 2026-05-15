@@ -42,7 +42,7 @@ profiling:
   enable_source_mapping: true
   enable_visual_report: false
   extra_profiler_options: []
-  ncu_bin: "ncu"                   # keep default; use an absolute path only for sudo secure_path or non-default CUDA
+  ncu_bin: "ncu"                   # non-sudo only; full_sudo reads ./profile/ncu_path
   output_root: "./profile"
 
 privilege:

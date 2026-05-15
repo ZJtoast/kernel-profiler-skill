@@ -104,8 +104,7 @@ python3 scripts/generate_profile_target.py \
   --python-script bench_triton_hgemm.py \
   --args --m 4096 --n 4096 --k 4096 --iters 100 \
   --kernel hgemm_byzj_v0 \
-  --requirement "visual report, source, roofline" \
-  --output profile-target.yaml
+  --requirement "visual report, source, roofline"
 ```
 
 When arguments begin with dashes, `--target-cmd` is often cleaner:
@@ -115,6 +114,5 @@ python3 scripts/generate_profile_target.py \
   --runtime python-triton \
   --target-cmd "python3 bench_triton_hgemm.py --m 4096 --n 4096 --k 4096 --iters 100" \
   --kernel hgemm_byzj_v0 \
-  --requirement "visual report" \
-  --output profile-target.yaml
+  --requirement "visual report"
 ```
