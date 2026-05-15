@@ -42,18 +42,16 @@ profiling:
   enable_source_mapping: true
   enable_visual_report: false
   extra_profiler_options: []
+  ncu_bin: "ncu"                   # set exact path, e.g. /usr/local/cuda-12.4/bin/ncu, after NOPASSWD setup
   output_root: "./profile"
 
 privilege:
-  mode: "none"                    # none | authorized_sudo | manual_sudo_script
-  authorized_sudo_policy: "root-or-nopasswd-or-preauthenticated-only"
-  generate_manual_sudo_handoff: true
-  handoff_script_name: "run_profile_with_sudo.sh"
-  allow_internal_sudo_per_command: false
+  mode: "none"                    # none | full_sudo
+  full_sudo_policy: "root-or-nopasswd-only"
   password_storage: "forbidden"
   forbidden:
     - "Do not store sudo passwords in target files, scripts, logs, reports, environment variables, shell history, or commands."
-    - "Do not pipe passwords into sudo or read passwords from files."
+    - "Do not pipe passwords into sudo, auto-type passwords, or read passwords from files."
     - "Do not use privilege for anything outside the profiling command path."
 
 discovery:

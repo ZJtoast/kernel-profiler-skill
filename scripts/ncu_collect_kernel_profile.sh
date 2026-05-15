@@ -12,12 +12,17 @@ Options:
   --launch-skip N           Matching launches to skip. Default: 10
   --launch-count N          Matching launches to profile. Default: 1
   --devices ID              Optional ncu --devices value.
+  --ncu-bin PATH            Nsight Compute CLI path. Default: $NCU_BIN or ncu.
+                            Use the exact CUDA environment path that has NOPASSWD.
   --full                    Also run --set full as details/08_full.
   --no-source               Skip source/SASS collection.
   --extra "ARGS"            Extra raw ncu options appended before target command.
   --runtime NAME           Target runtime label: native | python | python-triton. Default: native.
   --nvtx-range NAME        Add Nsight Compute NVTX include filter for a named range.
-  --sudo                  Run ncu through sudo when not already root. Requires interactive/preauthorized sudo; never stores passwords.
+  --sudo                  Run ncu through non-interactive sudo (-n) when not already root.
+                          Requires root or exact-path NOPASSWD; never accepts passwords.
+  --stages LIST            Comma-separated stages to run. Default: all.
+                           Names: all,basic,speed-of-light,memory,compute,occupancy,roofline,source,full.
 USAGE
 }
 
@@ -28,12 +33,15 @@ OUTPUT_DIR="./profile/kernel_profile"
 LAUNCH_SKIP="10"
 LAUNCH_COUNT="1"
 DEVICES=""
+NCU_BIN="${NCU_BIN:-ncu}"
 RUN_FULL="0"
 RUN_SOURCE="1"
 EXTRA=""
 RUNTIME="native"
 NVTX_RANGE=""
 USE_SUDO="0"
+STAGES="all"
+SUDO_PREFIX=()
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -44,12 +52,14 @@ while [[ $# -gt 0 ]]; do
     --launch-skip) LAUNCH_SKIP="$2"; shift 2 ;;
     --launch-count) LAUNCH_COUNT="$2"; shift 2 ;;
     --devices) DEVICES="$2"; shift 2 ;;
+    --ncu-bin) NCU_BIN="$2"; shift 2 ;;
     --full) RUN_FULL="1"; shift ;;
     --no-source) RUN_SOURCE="0"; shift ;;
     --extra) EXTRA="$2"; shift 2 ;;
     --runtime) RUNTIME="$2"; shift 2 ;;
     --nvtx-range) NVTX_RANGE="$2"; shift 2 ;;
     --sudo) USE_SUDO="1"; shift ;;
+    --stages) STAGES="$2"; shift 2 ;;
     -h|--help) usage; exit 0 ;;
     *) echo "Unknown option: $1" >&2; usage; exit 2 ;;
   esac
@@ -60,10 +70,86 @@ if [[ -z "$TARGET_CMD" || -z "$KERNEL_REGEX" ]]; then
   exit 2
 fi
 
+STAGE_ALL="0"
+STAGE_BASIC="0"
+STAGE_SPEED="0"
+STAGE_MEMORY="0"
+STAGE_COMPUTE="0"
+STAGE_OCCUPANCY="0"
+STAGE_ROOFLINE="0"
+STAGE_SOURCE="0"
+STAGE_FULL="0"
+
+IFS=',' read -ra STAGE_ITEMS <<< "$STAGES"
+for stage in "${STAGE_ITEMS[@]}"; do
+  stage="$(echo "$stage" | tr '[:upper:]' '[:lower:]' | tr '_' '-' | xargs)"
+  case "$stage" in
+    all)
+      STAGE_ALL="1"
+      ;;
+    basic)
+      STAGE_BASIC="1"
+      ;;
+    speed|speed-of-light|speedoflight|sol)
+      STAGE_SPEED="1"
+      ;;
+    memory|mem)
+      STAGE_MEMORY="1"
+      ;;
+    compute)
+      STAGE_COMPUTE="1"
+      ;;
+    occupancy|launch|launch-occupancy|scheduler)
+      STAGE_OCCUPANCY="1"
+      ;;
+    roofline)
+      STAGE_ROOFLINE="1"
+      ;;
+    source|sass|ptx)
+      STAGE_SOURCE="1"
+      ;;
+    full)
+      STAGE_FULL="1"
+      ;;
+    "")
+      ;;
+    *)
+      echo "Unknown stage in --stages: $stage" >&2
+      usage >&2
+      exit 2
+      ;;
+  esac
+done
+
+if [[ "$STAGE_ALL" == "1" ]]; then
+  STAGE_BASIC="1"
+  STAGE_SPEED="1"
+  STAGE_MEMORY="1"
+  STAGE_COMPUTE="1"
+  STAGE_OCCUPANCY="1"
+  STAGE_ROOFLINE="1"
+  STAGE_SOURCE="1"
+fi
+
+if [[ "$RUN_FULL" == "1" ]]; then
+  STAGE_FULL="1"
+fi
+
+if command -v "$NCU_BIN" >/dev/null 2>&1; then
+  NCU_BIN="$(command -v "$NCU_BIN")"
+fi
+if command -v readlink >/dev/null 2>&1; then
+  NCU_BIN="$(readlink -f "$NCU_BIN" 2>/dev/null || echo "$NCU_BIN")"
+fi
+
+if [[ "$USE_SUDO" == "1" && "${EUID:-$(id -u)}" != "0" ]]; then
+  SUDO_PREFIX=(sudo -n)
+fi
+
 mkdir -p "$OUTPUT_DIR/details" "$OUTPUT_DIR/visual"
 COMMANDS="$OUTPUT_DIR/commands.sh"
 ENVFILE="$OUTPUT_DIR/details/00_environment.txt"
-: > "$COMMANDS"
+touch "$COMMANDS"
 chmod +x "$COMMANDS"
 
 {
@@ -74,10 +160,12 @@ chmod +x "$COMMANDS"
   echo "launch_count: $LAUNCH_COUNT"
   echo "target_cmd: $TARGET_CMD"
   echo "runtime: $RUNTIME"
+  echo "stages: $STAGES"
+  echo "ncu_bin: $NCU_BIN"
   if [[ -n "$NVTX_RANGE" ]]; then echo "nvtx_range: $NVTX_RANGE"; fi
   echo
   echo "## ncu version"
-  ncu --version || true
+  "$NCU_BIN" --version || true
   echo
   echo "## nvidia-smi"
   nvidia-smi || true
@@ -96,44 +184,84 @@ fi
 run_ncu() {
   local label="$1"; shift
   local outfile="$1"; shift
-  local prefix=()
-  if [[ "$USE_SUDO" == "1" && "${EUID:-$(id -u)}" != "0" ]]; then prefix=(sudo); fi
-  local cmd=("${prefix[@]}" ncu "${DEVICE_ARGS[@]}" "$@" "${FILTER[@]}" "${WINDOW[@]}" -f -o "$OUTPUT_DIR/details/$outfile" $EXTRA)
+  local stderr_file="$OUTPUT_DIR/details/${outfile}_stderr.txt"
+  local cmd=("${SUDO_PREFIX[@]}" "$NCU_BIN" "${DEVICE_ARGS[@]}" "$@" "${FILTER[@]}" "${WINDOW[@]}" -f -o "$OUTPUT_DIR/details/$outfile" $EXTRA)
   echo "${cmd[*]} $TARGET_CMD" >> "$COMMANDS"
-  echo "ncu ${DEVICE_ARGS[*]} $* ${FILTER[*]} ${WINDOW[*]} -f -o $OUTPUT_DIR/details/$outfile $EXTRA $TARGET_CMD"
+  echo "${SUDO_PREFIX[*]} $NCU_BIN ${DEVICE_ARGS[*]} $* ${FILTER[*]} ${WINDOW[*]} -f -o $OUTPUT_DIR/details/$outfile $EXTRA $TARGET_CMD"
   # shellcheck disable=SC2086
-  if [[ "$USE_SUDO" == "1" && "${EUID:-$(id -u)}" != "0" ]]; then
-    sudo ncu ${DEVICE_ARGS[*]} "$@" "${FILTER[@]}" "${WINDOW[@]}" -f -o "$OUTPUT_DIR/details/$outfile" $EXTRA $TARGET_CMD
-  else
-    ncu ${DEVICE_ARGS[*]} "$@" "${FILTER[@]}" "${WINDOW[@]}" -f -o "$OUTPUT_DIR/details/$outfile" $EXTRA $TARGET_CMD
+  set +e
+  "${SUDO_PREFIX[@]}" "$NCU_BIN" ${DEVICE_ARGS[*]} "$@" "${FILTER[@]}" "${WINDOW[@]}" -f -o "$OUTPUT_DIR/details/$outfile" $EXTRA $TARGET_CMD 2> >(tee "$stderr_file" >&2)
+  local status=$?
+  set -e
+  if [[ "$status" -ne 0 ]]; then
+    if grep -Eqi "ERR_NVGPUCTRPERM|password is required|a password is required|permission|not permitted|Operation not permitted" "$stderr_file"; then
+      print_nopasswd_guide "$NCU_BIN" >&2
+    fi
+    return "$status"
   fi
 }
 
-run_ncu "basic" "01_basic" --set basic
-run_ncu "speed_of_light" "02_speed_of_light" --section SpeedOfLight
-run_ncu "memory" "03_memory" --section MemoryWorkloadAnalysis --section SourceCounters
-run_ncu "compute" "04_compute" --section ComputeWorkloadAnalysis --section InstructionStats --section SourceCounters
-run_ncu "occupancy" "05_occupancy_launch" --section LaunchStats --section Occupancy --section SchedulerStats --section WarpStateStats
+print_nopasswd_guide() {
+  local ncu_path="$1"
+  cat <<GUIDE
 
-if ncu --list-sections | grep -qi "SpeedOfLight_RooflineChart"; then
-  run_ncu "roofline" "06_roofline" --section SpeedOfLight_RooflineChart
-else
-  echo "Roofline section not found; inspect 'ncu --list-sections'." | tee "$OUTPUT_DIR/details/06_roofline_missing.txt"
+Nsight Compute needs privileged performance counters, but this agent cannot interactively type sudo passwords.
+Configure exact-path NOPASSWD for the CUDA environment you want this profile to use:
+
+  which ncu
+  readlink -f \$(which ncu)
+  sudo visudo -f /etc/sudoers.d/kernel-profiler-ncu
+
+Add one line, replacing USERNAME and the path with the exact output above:
+
+  USERNAME ALL=(root) NOPASSWD: $ncu_path
+
+Then verify:
+
+  sudo -n $ncu_path --version
+
+For servers with multiple CUDA environments, keep using this same ncu path in profiling:
+
+  scripts/ncu_collect_kernel_profile.sh --ncu-bin "$ncu_path" --sudo ...
+
+Do not grant NOPASSWD: ALL, and do not store sudo passwords in files.
+GUIDE
+}
+
+if [[ "$STAGE_BASIC" == "1" ]]; then
+  run_ncu "basic" "01_basic" --set basic
 fi
-
-if [[ "$RUN_SOURCE" == "1" ]]; then
+if [[ "$STAGE_SPEED" == "1" ]]; then
+  run_ncu "speed_of_light" "02_speed_of_light" --section SpeedOfLight
+fi
+if [[ "$STAGE_MEMORY" == "1" ]]; then
+  run_ncu "memory" "03_memory" --section MemoryWorkloadAnalysis --section SourceCounters
+fi
+if [[ "$STAGE_COMPUTE" == "1" ]]; then
+  run_ncu "compute" "04_compute" --section ComputeWorkloadAnalysis --section InstructionStats --section SourceCounters
+fi
+if [[ "$STAGE_OCCUPANCY" == "1" ]]; then
+  run_ncu "occupancy" "05_occupancy_launch" --section LaunchStats --section Occupancy --section SchedulerStats --section WarpStateStats
+fi
+if [[ "$STAGE_ROOFLINE" == "1" ]]; then
+  if "${SUDO_PREFIX[@]}" "$NCU_BIN" --list-sections | grep -qi "SpeedOfLight_RooflineChart"; then
+    run_ncu "roofline" "06_roofline" --section SpeedOfLight_RooflineChart
+  else
+    echo "Roofline section not found; inspect '$NCU_BIN --list-sections'." | tee "$OUTPUT_DIR/details/06_roofline_missing.txt"
+  fi
+fi
+if [[ "$STAGE_SOURCE" == "1" && "$RUN_SOURCE" == "1" ]]; then
   run_ncu "source" "07_source" --section SourceCounters --page source --print-source sass
 fi
-
-if [[ "$RUN_FULL" == "1" ]]; then
+if [[ "$STAGE_FULL" == "1" ]]; then
   run_ncu "full" "08_full" --set full
 fi
 
 for report in "$OUTPUT_DIR"/details/*.ncu-rep; do
   [[ -e "$report" ]] || continue
   csv="${report%.ncu-rep}_raw.csv"
-  echo "ncu --import $report --page raw --csv > $csv" >> "$COMMANDS"
-  ncu --import "$report" --page raw --csv > "$csv" || true
+  echo "${SUDO_PREFIX[*]} $NCU_BIN --import $report --page raw --csv > $csv" >> "$COMMANDS"
+  "${SUDO_PREFIX[@]}" "$NCU_BIN" --import "$report" --page raw --csv > "$csv" || true
 done
 
 # Generate compact metric summary from all raw CSV files.
@@ -152,6 +280,7 @@ cat > "$OUTPUT_DIR/run_manifest.yaml" <<MANIFEST
 profile_id: "$(basename "$OUTPUT_DIR")"
 created_at: "$(date -Iseconds)"
 backend: "nvidia-ncu"
+ncu_bin: "$NCU_BIN"
 runtime: "$RUNTIME"
 privilege:
   sudo_requested: "$USE_SUDO"
@@ -166,6 +295,7 @@ kernel:
 profiling:
   warmup_skip: $LAUNCH_SKIP
   launch_count: $LAUNCH_COUNT
+  stages: "$STAGES"
 reports_directory: "details"
 MANIFEST
 

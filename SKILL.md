@@ -1,23 +1,43 @@
 ---
 name: kernel-profiler-skill
-description: "Kernel-only GPU profiling workflow for professional profiler backends. Default backend is NVIDIA Nsight Compute (ncu), but the workflow is vendor-portable. Use for profiling, diagnosing, comparing, or reporting individual GPU kernels without expanding into end-to-end system tracing."
+description: "Kernel-only GPU profiling workflow. Use for profiling, diagnosing, comparing, or reporting individual GPU kernels without expanding into end-to-end system tracing."
 ---
 
 # Kernel Profiler Skill
 
-This skill standardizes an industrial, kernel-only profiling workflow. The default backend is NVIDIA Nsight Compute (`ncu`). Other GPU vendors can replace the backend through `references/<vendor>/vendor-adapter-*.yaml` and a compatible metric alias map.
+This skill standardizes an industrial, kernel-only profiling workflow.
 
 Do not expand into application timeline, CPU scheduling, launch-gap, dataloader, communication, or end-to-end system diagnosis unless the user explicitly changes scope. If system issues appear, record them as out-of-scope observations and continue with kernel-only evidence.
 
 Python and Triton are supported as target runtimes. In those cases, the profiled target is the Python process and the selected object is still the generated GPU kernel. Keep the same kernel-only scope: no Python timeline diagnosis, dataloader investigation, or framework-level performance audit by default.
 
+## Script-first operating rule
+
+The `scripts/` directory is the executable control plane for this skill. Agents must call these scripts directly instead of recreating their logic in generated shell snippets, Python snippets, or prose instructions.
+
+Use this script map as the default implementation path:
+
+| Task | Required script |
+|---|---|
+| Generate `profile-target.yaml` from a compact request | `python3 scripts/generate_profile_target.py ...` |
+| Collect Nsight Compute profile stages | `scripts/ncu_collect_kernel_profile.sh ...` |
+| Discover kernels only as fallback | `scripts/discover_kernels.sh profile-target.yaml ./profile/<id>/details` |
+| Extract compact metrics from raw CSV | `python3 scripts/extract_ncu_metrics.py ...` |
+| Generate source/SASS/PTX hotspot table | `python3 scripts/generate_source_hotspots.py ...` |
+| Run optional bottleneck rules | `python3 scripts/bottleneck_decision_engine.py ...` |
+| Run optional before/after comparison | `python3 scripts/compare_profiles.py ...` |
+| Render optional visual report | `python3 scripts/visualize_profile_report.py ...` |
+
+Do not inline or regenerate these scripts. Do not write a new collector, parser, hotspot extractor, comparison tool, visualization tool, or privilege wrapper unless the existing script is missing a required capability. If a capability is missing, make the smallest scoped patch to the existing script first, then call it.
+
+Direct `ncu` commands in this file are reference examples, not the preferred execution mechanism. During real profiling, prefer `scripts/ncu_collect_kernel_profile.sh` with `--stages` to run the requested or evidence-justified profile stages.
+
 ## Reference material policy
 
-The `references/` directory is part of this skill's required operating context, not optional background reading. Use it whenever profiler behavior, metric meaning, backend command syntax, bottleneck taxonomy, architecture limits, or vendor-portability decisions affect the answer.
+The `references/` directory is part of this skill's required operating context, not optional background reading. Use it whenever profiler behavior, metric meaning, command syntax, bottleneck taxonomy, or architecture limits affect the answer.
 
 Before running or interpreting a profile, consult the relevant reference files:
 
-- `references/nvidia/vendor-adapter-nvidia-ncu.yaml` for the default Nsight Compute backend commands, filters, sets, sections, export modes, and capability declarations.
 - `references/nvidia/ncu-guide.md` for the common `ncu` command flow: kernel filters, launch skip/count, basic/full sets, section collection, raw export, source export, and GUI handoff.
 - `references/nvidia/ProfilingGuide.index.md` as the first stop for official Nsight Compute concepts; use it to find the right topic without reading the full guide.
 - `references/nvidia/ProfilingGuide.md` when a precise Nsight Compute definition is needed: replay behavior, metric structure, hardware model, sections/rules, source metrics, NVTX/range profiling, roofline, or compatibility details.
@@ -25,12 +45,8 @@ Before running or interpreting a profile, consult the relevant reference files:
 - `references/nvidia/architectures/README.md` to understand the architecture reference layout and lookup order.
 - `references/nvidia/architectures/gpu_specs.yaml` for machine-readable GPU limits, product/chip fields, memory bandwidth, cache size, SM count, shared memory, registers, and occupancy ceilings.
 - `references/nvidia/architectures/architecture-notes.md` for interpreting those architecture fields during kernel analysis.
-- `references/portable/metric-aliases.yaml` for vendor-neutral metric aliases and portable analysis terminology.
-- `references/portable/portable-bottleneck-taxonomy.md` for normalized bottleneck classes.
-- `references/portable/rules/bottleneck_rules.yaml` only when the optional bottleneck decision engine is enabled.
-- `references/portable/vendor-porting-guide.md` when adding or validating a non-NVIDIA backend.
 
-Do not rely on memory alone for profiler metric names, section names, architecture limits, or backend flags. Prefer the local reference files first, then the installed profiler's own query commands such as `ncu --list-sections`, `ncu --list-sets`, and `ncu --query-metrics-mode all --query-metrics` when runtime confirmation is needed. If local references and profiler output disagree, report the discrepancy and prefer the profiler output for the current run.
+Do not rely on memory alone for profiler metric names, section names, architecture limits, or flags. Prefer the local reference files first, then the installed profiler's own query commands such as `ncu --list-sections`, `ncu --list-sets`, and `ncu --query-metrics-mode all --query-metrics` when runtime confirmation is needed. If local references and profiler output disagree, report the discrepancy and prefer the profiler output for the current run.
 
 Token-control rule: read only the files needed for the current decision. Use `rg` across `references/` to locate the relevant passage, then open the smallest useful file or section.
 
@@ -50,10 +66,11 @@ When invoked this way, perform the workflow below:
 3. Call `scripts/generate_profile_target.py` to create `profile-target.yaml`. Do not hand-write the file unless the generator cannot express the requested target or a small post-generation patch is required.
 4. Use the kernel hint directly as the first profiler filter. For `hgemm_byzj_v0`, generate `filter_mode: regex` and `filter: .*hgemm_byzj_v0.*`. Do not run discovery before this step.
 5. Validate unsupported or out-of-scope requirements recorded in `notes.unsupported_or_deferred_requirements` before collection.
-6. Execute the staged profile, or generate a manual sudo handoff script when the privilege mode requires terminal interaction outside the agent process.
-7. Extract compact metrics, generate hotspot tables, generate optional visuals/comparison reports, then write the normalized final report under `./profile/<kernel_profile_id>/`.
+6. Execute the staged profile by calling `scripts/ncu_collect_kernel_profile.sh`. If `privilege.mode` is `full_sudo`, pass `--sudo` and the exact `profiling.ncu_bin` path with `--ncu-bin`. If the agent can run profiling itself, start with `--stages basic,speed-of-light`, inspect `details/metrics_summary.json`, then call the same script again with only the evidence-justified stages such as `memory`, `compute`, `occupancy`, `roofline`, or `source`. Use `--stages all` only when explicitly requested or when broad evidence is required.
+7. If Nsight Compute requires privileged counters and non-sudo profiling fails, stop collection and output the NOPASSWD setup guide in the Privilege model section. Do not generate a manual sudo handoff and do not ask for or use a sudo password.
+8. Use the existing scripts to extract compact metrics, generate hotspot tables, run optional visuals/comparison reports, then write the normalized final report under `./profile/<kernel_profile_id>/`.
 
-Manual `profile-target.yaml` editing and direct script invocation are supported secondary workflows. They are not the default interaction model.
+Manual `profile-target.yaml` editing is a supported secondary workflow. Direct script invocation is the default execution model.
 
 ## Input policy
 
@@ -94,11 +111,11 @@ Never run full profile against all kernels.
 Use `scripts/generate_profile_target.py` for compact requests. The generator must:
 
 1. Fill target executable, args, working directory, and kernel hint when available.
-2. Convert a kernel hint into a backend filter immediately, usually `regex:.*<escaped_kernel>.*`.
+2. Convert a kernel hint into an `ncu` filter immediately, usually `regex:.*<escaped_kernel>.*`.
 3. Translate supported extra requests into schema fields.
 4. Detect unsupported requests and place them under `notes.unsupported_or_deferred_requirements`.
 5. Keep discovery as a fallback, not as the default path.
-6. Never store sudo passwords.
+6. Never store, read, print, pipe, or auto-type sudo passwords.
 
 Example:
 
@@ -130,7 +147,7 @@ Supported extra-request classes:
 - source/SASS/PTX attribution
 - memory/compute/occupancy/roofline collection
 - before/after regression mode
-- privilege mode selection
+- privilege mode selection and exact `ncu` binary selection
 
 Unsupported by default:
 
@@ -141,69 +158,70 @@ Unsupported by default:
 - dataloader/network/MPI communication profiling
 - power tuning or overclocking
 - system-wide tracing
-- storing or piping sudo passwords
+- storing, reading, piping, or auto-typing sudo passwords
 
 ## Privilege model
 
-Professional GPU profilers may require privileged access to performance counters. The project supports three modes:
+Professional GPU profilers may require privileged access to performance counters. The project supports two modes:
 
 ```yaml
 privilege:
-  mode: "none"                    # none | authorized_sudo | manual_sudo_script
+  mode: "none"                    # none | full_sudo
   password_storage: "forbidden"
+profiling:
+  ncu_bin: "ncu"                  # exact path recommended for full_sudo
 ```
 
 ### Mode 1 — `none`
 
 Run profiler commands without sudo. This is the default and should be attempted first when the platform allows non-admin counter access.
 
-### Mode 2 — `authorized_sudo`
+### Mode 2 — `full_sudo`
 
-Run the collector directly with sudo only when the environment is already safe for non-interactive privileged execution, for example:
+Run the collector with non-interactive `sudo -n` for the selected `ncu` binary. This mode is allowed only when:
 
 - current process is already root,
-- sudo credentials are already cached by an operator, or
-- `/etc/sudoers` grants narrow `NOPASSWD` permission for the profiling command path.
+- `/etc/sudoers` grants narrow `NOPASSWD` permission for the exact `ncu` binary path.
 
-Plaintext password storage is not supported. Do not write passwords into YAML, scripts, logs, commands, environment variables, or shell history. Do not pipe passwords into `sudo -S`. Privilege must only be used for the profiler command path.
+Plaintext password storage is not supported. Do not write passwords into YAML, scripts, logs, commands, environment variables, shell history, or files such as `profile/sudokey`. Do not pipe passwords into `sudo -S`, read passwords from files, or auto-type passwords. Privilege must only be used for the profiler command path.
 
-### Mode 3 — `manual_sudo_script`
+#### NOPASSWD setup guide
 
-Generate `run_profile_with_sudo.sh` and let an operator run it in a real terminal. The generated script is intended to be launched as one privileged script:
+When `ncu` reports `ERR_NVGPUCTRPERM`, or `sudo -n` fails because a password is required, output this guide to the user:
 
 ```bash
-sudo bash ./profile/<profile_id>/run_profile_with_sudo.sh
+which ncu
+readlink -f $(which ncu)
+sudo visudo -f /etc/sudoers.d/kernel-profiler-ncu
 ```
 
-If launched without sudo, the script re-executes itself through sudo once, then runs profiler commands internally without prefixing each profiler invocation with sudo.
+Add exactly one narrow rule, replacing `USERNAME` and the path with the actual user and exact `readlink -f` result:
 
-Recommended preflight:
+```text
+USERNAME ALL=(root) NOPASSWD: /absolute/path/to/selected/cuda/bin/ncu
+```
+
+Verify:
 
 ```bash
-ncu --version
-ncu --list-sections
+sudo -n /absolute/path/to/selected/cuda/bin/ncu --version
+```
+
+For servers with multiple CUDA environments, the `ncu` path used in sudoers must be the same path used by the collector. Pass it explicitly:
+
+```bash
+scripts/ncu_collect_kernel_profile.sh \
+  --ncu-bin /absolute/path/to/selected/cuda/bin/ncu \
+  --sudo \
+  ...
+```
+
+Recommended preflight after setup:
+
+```bash
+sudo -n /absolute/path/to/selected/cuda/bin/ncu --version
+sudo -n /absolute/path/to/selected/cuda/bin/ncu --list-sections
 nvidia-smi || true
-```
-
-If `ERR_NVGPUCTRPERM` or equivalent appears, update `run_manifest.yaml`, generate `run_profile_with_sudo.sh` when permitted, and report the permission issue.
-
-Manual handoff example:
-
-```bash
-python3 scripts/create_sudo_profile_handoff.py \
-  --target-cmd "./build/bench --iters 100" \
-  --kernel-name hgemm_byzj_v0 \
-  --kernel-regex ".*hgemm_byzj_v0.*" \
-  --launch-skip 10 \
-  --launch-count 1 \
-  --output-dir ./profile/hgemm_byzj_v0_20260515_120000 \
-  --script ./profile/hgemm_byzj_v0_20260515_120000/run_profile_with_sudo.sh
-```
-
-Then run:
-
-```bash
-sudo bash ./profile/hgemm_byzj_v0_20260515_120000/run_profile_with_sudo.sh
 ```
 
 ## Output contract
@@ -215,7 +233,6 @@ Always generate:
 ├── final_report.md
 ├── run_manifest.yaml
 ├── commands.sh
-├── run_profile_with_sudo.sh                 # only when manual sudo handoff is needed
 ├── details/
 │   ├── 00_environment.txt
 │   ├── 00_discovery_raw.csv                 # if discovery was needed
@@ -247,14 +264,14 @@ The final report must include target summary, kernel filter, profiler version, p
 1. Resolve target path, working directory, environment variables, privilege policy, and kernel filter.
 2. If a kernel name is available but no explicit filter is provided, generate a regex filter from the kernel name and proceed.
 3. Enter discovery mode only if the filter is missing, produces no match, or needs disambiguation.
-4. Detect profiler availability through the vendor adapter.
+4. Detect profiler availability.
 5. Capture environment in `details/00_environment.txt`.
 6. Check source mapping requirement. Prefer release build with line info, e.g. `nvcc -O3 -lineinfo`. Do not use debug-only `-G` for performance profiling unless explicitly requested.
 7. Generate stable profile id from `{sanitized_kernel_name}_{YYYYMMDD_HHMMSS}` unless provided.
 
 ### Phase 1 — Kernel selection and discovery fallback
 
-Default path: use the generated kernel filter directly. For a request like `hgemm_byzj_v0`, the initial backend filter should be equivalent to:
+Default path: use the generated kernel filter directly. For a request like `hgemm_byzj_v0`, the initial filter should be equivalent to:
 
 ```text
 regex:.*hgemm_byzj_v0.*
@@ -274,7 +291,7 @@ Selection policy:
 4. If several candidates are plausible, choose the highest-cost candidate and record alternatives.
 5. Never run full profile on all kernels.
 
-For precise filtering, use backend-supported filter modes such as exact name, regex, kernel-id, or NVTX range.
+For precise filtering, use supported filter modes such as exact name, regex, kernel-id, or NVTX range.
 
 ### Phase 2 — Stabilize launch window
 
@@ -293,8 +310,8 @@ See `docs/workload-stabilization-guide.md` and `docs/triton-kernel-profiling.md`
 
 When `target.runtime` is `python-triton`:
 
-1. Profile the Python command with the normal backend collector; do not try to profile the `.py` file as a source artifact by itself.
-2. Use the requested Triton kernel name as the initial backend kernel filter.
+1. Profile the Python command with the collector script; do not try to profile the `.py` file as a source artifact by itself.
+2. Use the requested Triton kernel name as the initial kernel filter.
 3. Treat JIT compilation and autotune launches as warmup unless `runtime_options.triton_autotune_policy: allow_autotune` is explicitly set.
 4. Prefer fixed Triton configs for final evidence runs.
 5. Require explicit synchronization around the benchmark/profiled loop when practical.
@@ -311,7 +328,8 @@ scripts/ncu_collect_kernel_profile.sh \
   --kernel-regex ".*hgemm_byzj_v0.*" \
   --launch-skip 20 \
   --launch-count 1 \
-  --output-dir ./profile/hgemm_byzj_v0_20260515_120000
+  --output-dir ./profile/hgemm_byzj_v0_20260515_120000 \
+  --stages basic,speed-of-light
 ```
 
 ### Phase 3 — Basic profile
@@ -322,22 +340,24 @@ Purpose:
 - Identify obvious bottlenecks.
 - Check launch configuration, occupancy, SM utilization, and memory utilization.
 
-NVIDIA example:
+Default script call:
 
 ```bash
-ncu --set basic \
-  --kernel-name-base demangled \
-  --kernel-name regex:"<kernel_filter>" \
+scripts/ncu_collect_kernel_profile.sh \
+  --target-cmd "<target_command>" \
+  --kernel-name "<kernel_name>" \
+  --kernel-regex "<kernel_filter>" \
   --launch-skip <N> --launch-count <M> \
-  -f -o details/01_basic \
-  <target_command>
+  --output-dir ./profile/<id> \
+  --stages basic
 ```
 
-Extract compact metrics:
+The collector exports raw CSV files and calls `scripts/extract_ncu_metrics.py` automatically when raw metrics are available. If a manual extraction retry is needed, call the extractor script directly:
 
 ```bash
-ncu --import details/01_basic.ncu-rep --page raw --csv > details/metrics_raw.csv
-python3 scripts/extract_ncu_metrics.py --input details/metrics_raw.csv --output-dir details
+python3 scripts/extract_ncu_metrics.py \
+  --input ./profile/<id>/details/metrics_raw.csv \
+  --output-dir ./profile/<id>/details
 ```
 
 ### Phase 4 — High-level bottleneck profile
@@ -345,12 +365,13 @@ python3 scripts/extract_ncu_metrics.py --input details/metrics_raw.csv --output-
 Collect Speed of Light:
 
 ```bash
-ncu --section SpeedOfLight \
-  --kernel-name-base demangled \
-  --kernel-name regex:"<kernel_filter>" \
+scripts/ncu_collect_kernel_profile.sh \
+  --target-cmd "<target_command>" \
+  --kernel-name "<kernel_name>" \
+  --kernel-regex "<kernel_filter>" \
   --launch-skip <N> --launch-count <M> \
-  -f -o details/02_speed_of_light \
-  <target_command>
+  --output-dir ./profile/<id> \
+  --stages speed-of-light
 ```
 
 Classify with evidence:
@@ -370,7 +391,17 @@ Run only the sections justified by evidence. If uncertain, run memory, compute, 
 
 #### Memory
 
-Collect `MemoryWorkloadAnalysis`, `MemoryWorkloadAnalysis_Chart`, and `SourceCounters`.
+Collect `MemoryWorkloadAnalysis`, `MemoryWorkloadAnalysis_Chart`, and `SourceCounters` through the collector script:
+
+```bash
+scripts/ncu_collect_kernel_profile.sh \
+  --target-cmd "<target_command>" \
+  --kernel-name "<kernel_name>" \
+  --kernel-regex "<kernel_filter>" \
+  --launch-skip <N> --launch-count <M> \
+  --output-dir ./profile/<id> \
+  --stages memory
+```
 
 Analyze DRAM throughput, L1/TEX hit rate, L2 hit rate, global load/store requests and sectors, sectors/request, memory transactions, shared bank conflicts, local memory/spill symptoms, cache-line utilization, replay overhead, Mem Busy, Max Bandwidth, and Mem Pipes Busy.
 
@@ -385,13 +416,33 @@ Prefer report field names over hard-coded metrics when profiler versions differ.
 
 #### Compute
 
-Collect `ComputeWorkloadAnalysis`, `InstructionStats`, and `SourceCounters`.
+Collect `ComputeWorkloadAnalysis`, `InstructionStats`, and `SourceCounters` through the collector script:
+
+```bash
+scripts/ncu_collect_kernel_profile.sh \
+  --target-cmd "<target_command>" \
+  --kernel-name "<kernel_name>" \
+  --kernel-regex "<kernel_filter>" \
+  --launch-skip <N> --launch-count <M> \
+  --output-dir ./profile/<id> \
+  --stages compute
+```
 
 Analyze FP32/FP64/Tensor Core utilization, integer pipeline, load/store pipeline, IPC, instruction mix, FMA use, tensor instruction use, and whether a specific pipeline is saturated.
 
 #### Occupancy and launch
 
-Collect `LaunchStats`, `Occupancy`, `SchedulerStats`, and `WarpStateStats`.
+Collect `LaunchStats`, `Occupancy`, `SchedulerStats`, and `WarpStateStats` through the collector script:
+
+```bash
+scripts/ncu_collect_kernel_profile.sh \
+  --target-cmd "<target_command>" \
+  --kernel-name "<kernel_name>" \
+  --kernel-regex "<kernel_filter>" \
+  --launch-skip <N> --launch-count <M> \
+  --output-dir ./profile/<id> \
+  --stages occupancy
+```
 
 Analyze block size, grid size, registers per thread, static/dynamic shared memory, theoretical occupancy, achieved occupancy, active warps per SM, eligible warps per scheduler, and the limiting resource: register, shared memory, block limit, thread limit, or warp limit.
 
@@ -399,15 +450,40 @@ Use `references/nvidia/architectures/gpu_specs.yaml` to resolve architecture-spe
 
 #### Roofline
 
-Collect the backend roofline section when supported. Use it to decide whether the kernel is memory-bound or compute-bound by arithmetic intensity, not just by throughput percentages.
+Collect the roofline section through the collector script when supported:
+
+```bash
+scripts/ncu_collect_kernel_profile.sh \
+  --target-cmd "<target_command>" \
+  --kernel-name "<kernel_name>" \
+  --kernel-regex "<kernel_filter>" \
+  --launch-skip <N> --launch-count <M> \
+  --output-dir ./profile/<id> \
+  --stages roofline
+```
+
+Use it to decide whether the kernel is memory-bound or compute-bound by arithmetic intensity, not just by throughput percentages.
 
 #### Source, SASS, and PTX attribution
 
-Export source page and generate a standard hotspot table:
+Collect source counters and generate a standard hotspot table through the collector script:
 
 ```bash
-ncu --import details/07_source.ncu-rep --page source --print-source sass > details/07_source.txt
-python3 scripts/generate_source_hotspots.py --input details/07_source.txt --output details/source_hotspots.csv
+scripts/ncu_collect_kernel_profile.sh \
+  --target-cmd "<target_command>" \
+  --kernel-name "<kernel_name>" \
+  --kernel-regex "<kernel_filter>" \
+  --launch-skip <N> --launch-count <M> \
+  --output-dir ./profile/<id> \
+  --stages source
+```
+
+If a manual hotspot retry is needed, call:
+
+```bash
+python3 scripts/generate_source_hotspots.py \
+  --input ./profile/<id>/details/07_source_raw.csv \
+  --output ./profile/<id>/details/source_hotspots.csv
 ```
 
 Every primary bottleneck should map to at least one of:
@@ -434,7 +510,7 @@ Run:
 python3 scripts/bottleneck_decision_engine.py \
   --target profile-target.yaml \
   --metrics details/metrics_summary.json \
-  --rules references/portable/rules/bottleneck_rules.yaml \
+  --rules <rules.yaml> \
   --output details/bottleneck_decision.json
 ```
 
@@ -501,21 +577,3 @@ The final report must be compact, evidence-first, and reproducible. Avoid dumpin
 4. Only inspect raw metrics for unresolved evidence gaps.
 5. Prefer table summaries and exact artifact paths.
 6. If a section was not collected, say so and explain why.
-
-## Vendor porting
-
-A vendor backend must provide:
-
-- profiler command mapping
-- kernel discovery method
-- exact/regex/id/range filtering support or equivalent
-- basic, memory, compute, occupancy, roofline, and source/ISA collection mapping
-- raw metric export method
-- source/ISA correlation method
-- conformance declaration in adapter YAML
-
-Run:
-
-```bash
-python3 scripts/vendor_conformance_check.py --adapter references/nvidia/vendor-adapter-nvidia-ncu.yaml
-```

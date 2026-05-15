@@ -38,9 +38,8 @@ SUPPORTED_REQUIREMENT_KEYWORDS = {
     "compare": ("analysis", "enable_regression_compare", True),
     "no sudo": ("privilege", "mode", "none"),
     "without sudo": ("privilege", "mode", "none"),
-    "sudo script": ("privilege", "mode", "manual_sudo_script"),
-    "manual sudo": ("privilege", "mode", "manual_sudo_script"),
-    "sudo": ("privilege", "mode", "authorized_sudo"),
+    "full sudo": ("privilege", "mode", "full_sudo"),
+    "sudo": ("privilege", "mode", "full_sudo"),
 }
 
 UNSUPPORTED_HINTS = [
@@ -107,18 +106,16 @@ def template() -> dict:
             "enable_source_mapping": True,
             "enable_visual_report": False,
             "extra_profiler_options": [],
+            "ncu_bin": "ncu",
             "output_root": "./profile",
         },
         "privilege": {
-            "mode": "none",  # none | authorized_sudo | manual_sudo_script
-            "authorized_sudo_policy": "root-or-nopasswd-or-preauthenticated-only",
-            "generate_manual_sudo_handoff": True,
-            "handoff_script_name": "run_profile_with_sudo.sh",
-            "allow_internal_sudo_per_command": False,
+            "mode": "none",  # none | full_sudo
+            "full_sudo_policy": "root-or-exact-ncu-path-nopasswd-only",
             "password_storage": "forbidden",
             "forbidden": [
                 "Do not store sudo passwords in target files, scripts, logs, reports, environment variables, shell history, or commands.",
-                "Do not pipe passwords into sudo or read passwords from files.",
+                "Do not pipe passwords into sudo, auto-type passwords, or read passwords from files.",
                 "Do not use privilege for anything outside the profiling command path.",
             ],
         },
@@ -171,7 +168,8 @@ def main() -> int:
     ap.add_argument("--filter-mode", default="auto", choices=["auto", "exact", "regex", "kernel-id", "nvtx-range", "vendor-specific", "none"])
     ap.add_argument("--filter", default=None)
     ap.add_argument("--requirement", action="append", default=[], help="Extra natural-language requirement; may be repeated")
-    ap.add_argument("--privilege-mode", default=None, choices=["none", "authorized_sudo", "manual_sudo_script"])
+    ap.add_argument("--privilege-mode", default=None, choices=["none", "full_sudo"])
+    ap.add_argument("--ncu-bin", default=None, help="Exact Nsight Compute CLI path for the CUDA environment to profile with.")
     ap.add_argument("--output", default="profile-target.yaml")
     ns = ap.parse_args()
 
@@ -232,9 +230,6 @@ def main() -> int:
     lower = requirements.lower()
     for key, action in SUPPORTED_REQUIREMENT_KEYWORDS.items():
         if key in lower:
-            # Avoid letting the generic word "sudo" override the explicit manual sudo mode.
-            if action == ("privilege", "mode", "authorized_sudo") and cfg["privilege"].get("mode") == "manual_sudo_script":
-                continue
             set_nested(cfg, *action)
     if cfg["target"].get("runtime") == "python-triton":
         cfg["target"]["python"]["jit_framework"] = "triton"
@@ -255,6 +250,8 @@ def main() -> int:
         cfg["profiling"]["enable_visual_report"] = True
     if ns.privilege_mode:
         cfg["privilege"]["mode"] = ns.privilege_mode
+    if ns.ncu_bin:
+        cfg["profiling"]["ncu_bin"] = ns.ncu_bin
 
     for hint in UNSUPPORTED_HINTS:
         if hint in lower:

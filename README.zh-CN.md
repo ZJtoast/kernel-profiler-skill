@@ -25,6 +25,17 @@ Kernel Profiler Skill 是面向 Cursor、Claude Code、Codex 和 Gemini CLI 的 
 
 默认不处理 CPU timeline、dataloader、通信、launch gap、MPI/NCCL overlap、端到端系统 trace 和系统调度问题。这些属于 system profiler 的范围。
 
+## Agent 执行规则：优先调用脚本
+
+`scripts/` 目录是这个 skill 的可执行实现。Agent 应直接调用这些脚本，不要重新生成等价的 shell 或 Python 逻辑：
+
+- `scripts/generate_profile_target.py`：生成 `profile-target.yaml`
+- `scripts/ncu_collect_kernel_profile.sh`：执行分阶段 profiling
+- `scripts/discover_kernels.sh`：仅作为 kernel 选择 fallback
+- `scripts/extract_ncu_metrics.py`、`scripts/generate_source_hotspots.py`、`scripts/compare_profiles.py`、`scripts/visualize_profile_report.py`：执行后处理
+
+如果现有脚本缺少能力，应优先给现有脚本做最小补丁，然后调用它。直接写 `ncu` 命令只作为 backend 参考，不是 agent 的默认执行方式。
+
 ## 安装方式
 
 clone 这个仓库，或在当前目录运行下面的复制命令：
@@ -55,10 +66,11 @@ Copy-Item -Recurse -Force . "$env:USERPROFILE\.codex\skills\kernel-profiler-skil
 2. 如果请求没有给出可执行文件或命令，从当前仓库中解析 benchmark 入口，例如 `README`、`CMakeLists.txt`、`Makefile`、`build/`、`bin/`、`examples/`、benchmark 脚本和 run 脚本。
 3. 调用 `scripts/generate_profile_target.py` 生成 `profile-target.yaml`。
 4. 直接用 kernel 名称生成初始 filter。`hgemm_byzj_v0` 默认生成 `.*hgemm_byzj_v0.*`。
-5. 运行分阶段 profile、抽取指标、生成 source hotspot，并在需要时生成可视化报告。
-6. 最终产物写入 `./profile/<kernel_name>_<profile_id>/`。
+5. 先调用 `scripts/ncu_collect_kernel_profile.sh --stages basic,speed-of-light`，读取 `details/metrics_summary.json` 后，再只运行证据支持的后续阶段，例如 `memory`、`compute`、`occupancy`、`roofline` 或 `source`。
+6. 需要 source hotspot、对比或可视化时，继续调用现有脚本生成。
+7. 最终产物写入 `./profile/<kernel_name>_<profile_id>/`。
 
-手动方式仍然支持：可以从 `assets/templates/profile-target.yaml` 手写 target，也可以生成后手动修改，或直接调用底层脚本。
+手动方式仍然支持：可以从 `assets/templates/profile-target.yaml` 手写 target，也可以生成后手动修改。直接调用底层脚本是默认执行方式。
 
 当 agent 已经解析出 benchmark 命令后，对上面请求通常会生成类似命令：
 
@@ -114,7 +126,7 @@ Discovery 只在没有 kernel 名称、过滤失败或过滤结果歧义时使�
 
 ### 分阶段 Nsight Compute 采集
 
-标准 profile 阶段包括：
+标准 collector 支持用 `--stages` 选择 profile 阶段。Agent 自主执行时，默认先做较轻的首轮采集，再按证据补跑目标阶段：
 
 1. `basic`：快速检查 launch、occupancy 和高层利用率。
 2. `SpeedOfLight`：判断 compute 方向还是 memory 方向。
@@ -143,15 +155,23 @@ Triton 支持包括：
 
 ### 权限处理
 
-部分 profiler counter 需要更高权限。支持三种模式：
+部分 profiler counter 需要更高权限。支持两种模式：
 
 | 模式                   | 说明                                                                    |
 | ---------------------- | ----------------------------------------------------------------------- |
 | `none`               | 不使用 sudo。                                                           |
-| `authorized_sudo`    | 仅在 root、sudo 已缓存或 sudoers 已配置窄范围 `NOPASSWD` 时直接运行。 |
-| `manual_sudo_script` | 生成脚本，由操作者用 `sudo bash ...` 整体运行。                       |
+| `full_sudo`          | 使用 `sudo -n` 执行精确 `ncu` 路径；要求 root 或 sudoers 已配置窄范围 `NOPASSWD`。 |
 
-不实现明文 sudo 密码保存。密码不得进入 YAML、脚本、日志、环境变量、shell history、命令或报告。
+不实现明文 sudo 密码保存。密码不得进入 YAML、脚本、日志、环境变量、shell history、命令、报告或 `profile/sudokey` 之类的文件。遇到必须 sudo 才能使用 `ncu` 的情况，agent 应输出 [Nsight Compute NOPASSWD 配置指南](docs/ncu-nopasswd-guide.zh-CN.md)，要求用户为当前 CUDA 环境中的精确 `ncu` 路径配置 `NOPASSWD`。
+
+多 CUDA 环境中，配置了哪个 `ncu` 路径，后续 profile 就必须持续使用同一个路径：
+
+```bash
+scripts/ncu_collect_kernel_profile.sh \
+  --ncu-bin /usr/local/cuda-12.4/bin/ncu \
+  --sudo \
+  ...
+```
 
 ### 指标抽取
 
@@ -241,6 +261,7 @@ assets/examples/profile-target.triton.example.yaml
 docs/workload-stabilization-guide.md
 docs/triton-kernel-profiling.md
 docs/vendor-conformance.md
+docs/ncu-nopasswd-guide.zh-CN.md
 docs/legal/NOTICE.md
 
 references/nvidia/architectures/gpu_specs.yaml
@@ -256,7 +277,6 @@ references/portable/rules/bottleneck_rules.yaml
 scripts/generate_profile_target.py
 scripts/ncu_collect_kernel_profile.sh
 scripts/discover_kernels.sh
-scripts/create_sudo_profile_handoff.py
 scripts/extract_ncu_metrics.py
 scripts/generate_source_hotspots.py
 scripts/bottleneck_decision_engine.py
@@ -334,6 +354,7 @@ schema 版本号，当前为 `3.0`。
 | `enable_source_mapping`  | 可用时开启 source/SASS/PTX 归因。       |
 | `enable_visual_report`   | 开启可视化报告。                        |
 | `extra_profiler_options` | backend-specific 额外参数。             |
+| `ncu_bin`                | Nsight Compute CLI 路径；`full_sudo` 模式建议使用配置过 NOPASSWD 的绝对路径。 |
 | `output_root`            | profile 输出根目录。                    |
 
 ### `privilege`
@@ -342,12 +363,10 @@ schema 版本号，当前为 `3.0`。
 
 | 字段                                | 含义                                                                |
 | ----------------------------------- | ------------------------------------------------------------------- |
-| `mode`                            | `none`、`authorized_sudo` 或 `manual_sudo_script`。           |
-| `authorized_sudo_policy`          | 限制 direct sudo 只能用于 root、cached sudo 或窄范围 `NOPASSWD`。 |
-| `generate_manual_sudo_handoff`    | 允许生成 `run_profile_with_sudo.sh`。                             |
-| `handoff_script_name`             | 手动 sudo 脚本名称。                                                |
-| `allow_internal_sudo_per_command` | 必须保持 `false`，脚本整体 sudo 运行。                            |
+| `mode`                            | `none` 或 `full_sudo`。                                      |
+| `full_sudo_policy`                | 限制 sudo 只能用于 root 或精确 `ncu` 路径的 `NOPASSWD`。       |
 | `password_storage`                | 必须保持 `forbidden`。                                            |
+| `forbidden`                       | 禁止保存、读取、打印、管道传输或自动键入 sudo 密码。             |
 | `forbidden`                       | 密码和权限使用的禁止项。                                            |
 
 ### `discovery`
@@ -411,7 +430,7 @@ python3 scripts/generate_profile_target.py \
   --output profile-target.yaml
 ```
 
-执行 profile：
+执行首轮 profile：
 
 ```bash
 scripts/ncu_collect_kernel_profile.sh \
@@ -420,10 +439,24 @@ scripts/ncu_collect_kernel_profile.sh \
   --kernel-regex ".*hgemm_byzj_v0.*" \
   --launch-skip 10 \
   --launch-count 1 \
-  --output-dir ./profile/hgemm_byzj_v0_20260515_120000
+  --output-dir ./profile/hgemm_byzj_v0_20260515_120000 \
+  --stages basic,speed-of-light
 ```
 
-抽取指标：
+再按首轮证据补跑目标阶段，例如：
+
+```bash
+scripts/ncu_collect_kernel_profile.sh \
+  --target-cmd "./build/bench_gemm --m 4096 --n 4096 --k 4096 --iters 100" \
+  --kernel-name hgemm_byzj_v0 \
+  --kernel-regex ".*hgemm_byzj_v0.*" \
+  --launch-skip 10 \
+  --launch-count 1 \
+  --output-dir ./profile/hgemm_byzj_v0_20260515_120000 \
+  --stages memory,source
+```
+
+collector 会在存在 raw metrics 时自动导出 CSV 并抽取 compact metrics。需要手动重试时：
 
 ```bash
 python3 scripts/extract_ncu_metrics.py \
@@ -454,28 +487,8 @@ scripts/ncu_collect_kernel_profile.sh \
   --kernel-regex ".*hgemm_byzj_v0.*" \
   --launch-skip 20 \
   --launch-count 1 \
-  --output-dir ./profile/hgemm_byzj_v0_20260515_120000
-```
-
-## 手动 Sudo Handoff
-
-生成脚本：
-
-```bash
-python3 scripts/create_sudo_profile_handoff.py \
-  --target-cmd "./build/bench_gemm --m 4096 --n 4096 --k 4096 --iters 100" \
-  --kernel-name hgemm_byzj_v0 \
-  --kernel-regex ".*hgemm_byzj_v0.*" \
-  --launch-skip 10 \
-  --launch-count 1 \
   --output-dir ./profile/hgemm_byzj_v0_20260515_120000 \
-  --script ./profile/hgemm_byzj_v0_20260515_120000/run_profile_with_sudo.sh
-```
-
-整体 sudo 执行：
-
-```bash
-sudo bash ./profile/hgemm_byzj_v0_20260515_120000/run_profile_with_sudo.sh
+  --stages basic,speed-of-light
 ```
 
 ## 输出结构
@@ -585,7 +598,7 @@ python3 scripts/vendor_conformance_check.py \
 
 ### v1.0
 
-稳定版 kernel-only profiling package，支持 native CUDA 与 Python/Triton。包含 target 生成、分阶段 Nsight Compute 采集、可选可视化、可选 before/after regression、可选 bottleneck rules、source hotspot 抽取、sudo handoff、NVIDIA 硬件元数据、vendor-portable metric aliases 和 backend conformance check。
+稳定版 kernel-only profiling package，支持 native CUDA 与 Python/Triton。包含 target 生成、分阶段 Nsight Compute 采集、可选可视化、可选 before/after regression、可选 bottleneck rules、source hotspot 抽取、精确 `ncu` 路径 NOPASSWD 指南、NVIDIA 硬件元数据、vendor-portable metric aliases 和 backend conformance check。
 
 ### v0.6
 
@@ -593,11 +606,11 @@ python3 scripts/vendor_conformance_check.py \
 
 ### v0.5
 
-明确权限模式：无 sudo、已授权 sudo、手动 sudo 脚本。kernel 名称请求默认直接生成 regex filter，discovery 只作为 fallback。
+明确权限模式：无 sudo，以及通过 `sudo -n` 执行精确 `ncu` 路径的 `full_sudo`。kernel 名称请求默认直接生成 regex filter，discovery 只作为 fallback。
 
 ### v0.4
 
-增加手动 sudo handoff 脚本生成，适配无法交互式输入 sudo 密码的 profiler 执行环境。
+增加 Nsight Compute 需要性能计数器权限时的特权采集说明，适配无法交互式输入 sudo 密码的 profiler 执行环境。
 
 ### v0.3
 

@@ -3,6 +3,7 @@ profile_id: null
 created_at: null
 target_file: profile-target.yaml
 backend: nvidia-ncu
+ncu_bin: ncu
 runtime: native
 runtime_options:
   triton_enabled: false
