@@ -1,9 +1,8 @@
-# NVIDIA Nsight Compute CLI Guide Reference
+# NVIDIA Nsight Compute CLI Guide
 
-This file is a pointer to the upstream reference instead of a local copy, to avoid redistributing third-party documentation content.
+This repository does not vendor the full guide text. Use the upstream references below when Nsight Compute command flow is needed, such as kernel filters, launch skip/count, basic/full sets, section collection, raw export, source export, or GUI handoff.
 
-- Upstream project: https://github.com/slowlyC/agent-gpu-skills
-- Upstream file: https://github.com/slowlyC/agent-gpu-skills/blob/main/cuda_skill/references/ncu-guide.md
-- Related official documentation: https://docs.nvidia.com/nsight-compute/NsightComputeCli/
+## References
 
-Use this link when the skill needs Nsight Compute command flow, kernel filters, launch skip/count, section collection, raw export, source export, or GUI handoff details.
+- Upstream cuda_skill reference: https://github.com/slowlyC/agent-gpu-skills/blob/main/cuda_skill/references/ncu-guide.md
+- Official NVIDIA documentation: https://docs.nvidia.com/nsight-compute/NsightComputeCli/
