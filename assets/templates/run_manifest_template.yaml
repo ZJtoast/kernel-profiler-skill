@@ -1,0 +1,41 @@
+schema_version: 3.0
+profile_id: null
+created_at: null
+target_file: profile-target.yaml
+backend: nvidia-ncu
+runtime: native
+runtime_options:
+  triton_enabled: false
+  triton_kernel_hint: null
+  triton_autotune_policy: null
+  source_mapping_expectation: null
+privilege:
+  mode: none
+  permission_error_detected: false
+  password_stored: false
+  notes: []
+environment:
+  hostname: null
+  os: null
+  gpu_model: null
+  driver_version: null
+  cuda_version: null
+  profiler_version: null
+  container: null
+  mig_state: null
+  mps_state: null
+stabilization:
+  warmup_skip: null
+  launch_count: null
+  random_variation_tolerance_pct: 2.0
+kernel_selection:
+  discovery_used: false
+  candidates_file: null
+  selected_kernel: null
+  selected_filter_mode: null
+  selected_filter: null
+artifacts:
+  details_dir: details
+  metrics_summary: details/metrics_summary.json
+  source_hotspots: details/source_hotspots.csv
+  regression_report: null

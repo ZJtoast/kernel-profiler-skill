@@ -1,0 +1,48 @@
+vendor: nvidia
+backend_id: nvidia-ncu
+profiler_name: NVIDIA Nsight Compute
+cli: ncu
+gui: ncu-ui
+report_extensions: [.ncu-rep]
+raw_export_modes: [csv, raw_page, import_report]
+requires_privileged_counters_possible: true
+sudo_strategy:
+  default_policy: auto
+  allowed_policies: [auto, never, required, user-managed]
+  password_handling: never_store
+capabilities:
+  can_discover_kernel: true
+  can_filter_kernel: true
+  can_collect_basic: true
+  can_collect_memory: true
+  can_collect_compute: true
+  can_collect_occupancy: true
+  can_collect_roofline: true
+  can_export_raw_metrics: true
+  can_link_source_or_isa: true
+  can_compare_reports: true
+  can_profile_python_process: true
+  can_profile_triton_jit_kernels: true
+  triton_source_mapping: best_effort
+filters:
+  exact: "--kernel-name <name>"
+  regex: "--kernel-name-base demangled --kernel-name regex:<expr>"
+  kernel_id: "--kernel-id <context-id:stream-id:[name-operator:]kernel-name:invocation-nr>"
+  nvtx_range: "--nvtx --nvtx-include <range>/"
+sets:
+  basic: "--set basic"
+  full: "--set full"
+sections:
+  high_level: [SpeedOfLight]
+  memory: [MemoryWorkloadAnalysis, MemoryWorkloadAnalysis_Chart, SourceCounters]
+  compute: [ComputeWorkloadAnalysis, InstructionStats, SourceCounters]
+  occupancy: [LaunchStats, Occupancy, SchedulerStats, WarpStateStats]
+  roofline: [SpeedOfLight_RooflineChart]
+  source: [SourceCounters]
+commands:
+  version: "ncu --version"
+  list_sections: "ncu --list-sections"
+  list_sets: "ncu --list-sets"
+  query_metrics: "ncu --query-metrics-mode all --query-metrics"
+  export_raw: "ncu --import <report.ncu-rep> --page raw --csv"
+  export_source: "ncu --import <report.ncu-rep> --page source --print-source sass"

@@ -1,0 +1,89 @@
+schema_version: 3.0
+
+target:
+  runtime: "python-triton"
+  executable: "python3"
+  working_directory: "."
+  args: ["bench_triton_hgemm.py", "--m", "4096", "--n", "4096", "--k", "4096", "--iters", "100"]
+  env:
+    CUDA_VISIBLE_DEVICES: "0"
+  stdin: null
+  timeout_seconds: null
+  python:
+    interpreter: "python3"
+    entry_kind: "script"
+    script: "bench_triton_hgemm.py"
+    module: null
+    jit_framework: "triton"
+
+runtime_options:
+  triton_enabled: true
+  triton_kernel_hint: "hgemm_byzj_v0"
+  triton_autotune_policy: "warmup_or_fixed_config"
+  jit_warmup_required: true
+  recommended_warmup_skip: 20
+  require_cuda_synchronize_around_profile_window: true
+  source_mapping_expectation: "best_effort"
+  notes:
+    - "Warm up Triton JIT/autotune before the profiled launch window."
+    - "If @triton.autotune is enabled, prefer a fixed config for reproducible profiling."
+
+kernel:
+  name: "hgemm_byzj_v0"
+  filter_mode: "regex"
+  filter: ".*hgemm_byzj_v0.*"
+  profile_id: "auto"
+  nvtx_range: null
+  allow_discovery_fallback: true
+
+profiling:
+  backend: "nvidia-ncu"
+  initial_level: "basic"
+  warmup_policy: "fixed"
+  warmup_skip: 20
+  launch_count: 1
+  enable_source_mapping: true
+  enable_visual_report: true
+  extra_profiler_options: []
+  output_root: "./profile"
+
+privilege:
+  mode: "none"
+  authorized_sudo_policy: "root-or-nopasswd-or-preauthenticated-only"
+  generate_manual_sudo_handoff: true
+  handoff_script_name: "run_profile_with_sudo.sh"
+  allow_internal_sudo_per_command: false
+  password_storage: "forbidden"
+  forbidden:
+    - "Do not store sudo passwords in target files, scripts, logs, reports, environment variables, shell history, or commands."
+    - "Do not pipe passwords into sudo or read passwords from files."
+    - "Do not use privilege for anything outside the profiling command path."
+
+discovery:
+  enabled_when_filter_missing: true
+  fallback_when_kernel_filter_misses: true
+  max_candidates: 20
+  prefer_user_named_kernel: true
+  rank_by: ["user_hint", "duration", "launch_count"]
+  command_extra_options: []
+
+analysis:
+  collect_memory: "auto"
+  collect_compute: "auto"
+  collect_occupancy: "auto"
+  collect_roofline: "auto"
+  collect_source: "auto"
+  enable_bottleneck_decision_engine: false
+  enable_regression_compare: false
+  compare_baseline: "auto"
+  random_variation_tolerance_pct: 2.0
+  generate_source_hotspots_table: true
+
+visualization:
+  enabled: true
+  format: "png"
+  require_python_packages: ["pandas", "matplotlib", "pyyaml"]
+
+notes:
+  user_requirements: "triton kernel, visual report"
+  unsupported_or_deferred_requirements: []

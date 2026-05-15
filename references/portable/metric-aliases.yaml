@@ -1,0 +1,41 @@
+portable_aliases:
+  compute_throughput:
+    nvidia_ncu:
+      sections: [SpeedOfLight, ComputeWorkloadAnalysis]
+      search_terms: ["sm__throughput", "smsp__throughput", "SM Throughput"]
+  memory_throughput:
+    nvidia_ncu:
+      sections: [SpeedOfLight, MemoryWorkloadAnalysis]
+      search_terms: ["dram__throughput", "lts__throughput", "l1tex__throughput", "Memory Throughput"]
+  occupancy:
+    nvidia_ncu:
+      sections: [Occupancy, LaunchStats]
+      search_terms: ["occupancy", "warps_active", "launch__occupancy_limit"]
+  scheduler_health:
+    nvidia_ncu:
+      sections: [SchedulerStats, WarpStateStats]
+      search_terms: ["eligible", "issued", "scheduler", "stall"]
+  memory_coalescing:
+    nvidia_ncu:
+      sections: [MemoryWorkloadAnalysis, SourceCounters]
+      search_terms: ["sectors", "requests", "sector/request", "global_op_ld", "global_op_st"]
+  local_scratch_spill:
+    nvidia_ncu:
+      sections: [MemoryWorkloadAnalysis, SourceCounters]
+      search_terms: ["local", "spill", "ld.local", "st.local"]
+  onchip_scratch_conflict:
+    nvidia_ncu:
+      sections: [MemoryWorkloadAnalysis]
+      search_terms: ["bank_conflicts", "shared", "shared_op_ld", "shared_op_st"]
+  instruction_mix:
+    nvidia_ncu:
+      sections: [InstructionStats, SourceCounters]
+      search_terms: ["opcode", "sass_thread_inst_executed", "pipe_fp32", "pipe_tensor"]
+  roofline:
+    nvidia_ncu:
+      sections: [SpeedOfLight_RooflineChart]
+      search_terms: ["roofline", "arithmetic intensity", "flop"]
+  source_attribution:
+    nvidia_ncu:
+      sections: [SourceCounters]
+      search_terms: ["source", "sass", "ptx", "lineinfo"]

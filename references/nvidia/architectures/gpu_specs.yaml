@@ -1,0 +1,704 @@
+schema_version: 1.0
+purpose: >
+  Machine-readable NVIDIA GPU architecture, chip, and product database for kernel-only profiling.
+  Agents must prefer runtime profiler/device metadata over this static database when values disagree.
+units:
+  sm_count: count
+  max_threads_per_sm: threads
+  max_warps_per_sm: warps
+  registers_32bit_per_sm: 32bit_registers
+  shared_memory_kb: KiB
+  l1_cache_kb: KiB
+  l2_cache_mb: MiB
+  memory_bandwidth_gbps: GB_per_second_decimal
+  memory_capacity_gb: GB_decimal_or_vendor_advertised
+source_policy:
+  official_first: true
+  missing_value: null
+  runtime_override: true
+  citation_style: store_source_key
+sources:
+  cuda_programming_guide_compute_capabilities:
+    type: official
+    url_hint: NVIDIA CUDA C++ Programming Guide, Compute Capabilities appendix
+    use_for: compute capability limits, threads, warps, registers, shared memory
+  nvidia_cuda_gpus:
+    type: official
+    url_hint: NVIDIA CUDA GPUs compute capability table
+    use_for: product-to-compute-capability mapping
+  nvidia_hopper_architecture_blog:
+    type: official
+    url_hint: NVIDIA Hopper Architecture In-Depth
+    use_for: H100 die-level GPC/TPC/SM, HBM3, L2, Tensor Core generation
+  nvidia_blackwell_architecture:
+    type: official
+    url_hint: NVIDIA Blackwell Architecture
+    use_for: Blackwell transistor, dual-die, chip-to-chip interconnect, Transformer Engine
+  nvidia_ada_whitepaper:
+    type: official_pdf
+    url_hint: NVIDIA Ada GPU Architecture whitepaper
+    use_for: AD102 full-chip SM, L1, L2, register file, Tensor Core generation
+
+compute_capability_classes:
+  "1.x":
+    architecture_family: Tesla
+    warp_size: 32
+    max_threads_per_block: 512
+    max_threads_per_sm: 768
+    max_warps_per_sm: 24
+    max_resident_blocks_per_sm: 8
+    registers_32bit_per_sm: 8192
+    max_registers_32bit_per_thread: 124
+    max_shared_memory_per_sm_kb: 16
+    max_shared_memory_per_block_kb: 16
+    l1_shared_combined_kb: null
+    notes: Legacy reference only; do not expect modern ncu support.
+    source: cuda_programming_guide_compute_capabilities
+  "2.x":
+    architecture_family: Fermi
+    warp_size: 32
+    max_threads_per_block: 1024
+    max_threads_per_sm: 1536
+    max_warps_per_sm: 48
+    max_resident_blocks_per_sm: 8
+    registers_32bit_per_sm: 32768
+    max_registers_32bit_per_thread: 63
+    max_shared_memory_per_sm_kb: 48
+    max_shared_memory_per_block_kb: 48
+    l1_shared_combined_kb: 64
+    notes: First generation with configurable L1/shared memory.
+    source: cuda_programming_guide_compute_capabilities
+  "3.x":
+    architecture_family: Kepler
+    warp_size: 32
+    max_threads_per_block: 1024
+    max_threads_per_sm: 2048
+    max_warps_per_sm: 64
+    max_resident_blocks_per_sm: 16
+    registers_32bit_per_sm: 65536
+    max_registers_32bit_per_thread: 255
+    max_shared_memory_per_sm_kb: 48
+    max_shared_memory_per_block_kb: 48
+    l1_shared_combined_kb: null
+    notes: Large SMX; occupancy often limited by register and block count.
+    source: cuda_programming_guide_compute_capabilities
+  "5.x":
+    architecture_family: Maxwell
+    warp_size: 32
+    max_threads_per_block: 1024
+    max_threads_per_sm: 2048
+    max_warps_per_sm: 64
+    max_resident_blocks_per_sm: 32
+    registers_32bit_per_sm: 65536
+    max_registers_32bit_per_thread: 255
+    max_shared_memory_per_sm_kb: 96
+    max_shared_memory_per_block_kb: 48
+    l1_shared_combined_kb: 96
+    notes: Higher resident-block limit than Kepler; cache behavior differs from Kepler.
+    source: cuda_programming_guide_compute_capabilities
+  "6.0":
+    architecture_family: Pascal
+    warp_size: 32
+    max_threads_per_block: 1024
+    max_threads_per_sm: 2048
+    max_warps_per_sm: 64
+    max_resident_blocks_per_sm: 32
+    registers_32bit_per_sm: 65536
+    max_registers_32bit_per_thread: 255
+    max_shared_memory_per_sm_kb: 64
+    max_shared_memory_per_block_kb: 48
+    l1_shared_combined_kb: 64
+    notes: GP100 datacenter profile; HBM2 bandwidth changes memory-bound thresholds.
+    source: cuda_programming_guide_compute_capabilities
+  "6.1":
+    architecture_family: Pascal
+    warp_size: 32
+    max_threads_per_block: 1024
+    max_threads_per_sm: 2048
+    max_warps_per_sm: 64
+    max_resident_blocks_per_sm: 32
+    registers_32bit_per_sm: 65536
+    max_registers_32bit_per_thread: 255
+    max_shared_memory_per_sm_kb: 96
+    max_shared_memory_per_block_kb: 48
+    l1_shared_combined_kb: 96
+    notes: GP102/GP104/GP106 consumer/workstation profile.
+    source: cuda_programming_guide_compute_capabilities
+  "7.0":
+    architecture_family: Volta
+    warp_size: 32
+    max_threads_per_block: 1024
+    max_threads_per_sm: 2048
+    max_warps_per_sm: 64
+    max_resident_blocks_per_sm: 32
+    registers_32bit_per_sm: 65536
+    max_registers_32bit_per_thread: 255
+    max_shared_memory_per_sm_kb: 96
+    max_shared_memory_per_block_kb: 96
+    l1_shared_combined_kb: 128
+    tensor_core_generation: 1
+    independent_thread_scheduling: true
+    notes: First Tensor Core generation; independent thread scheduling affects warp-synchronous assumptions.
+    source: cuda_programming_guide_compute_capabilities
+  "7.5":
+    architecture_family: Turing
+    warp_size: 32
+    max_threads_per_block: 1024
+    max_threads_per_sm: 1024
+    max_warps_per_sm: 32
+    max_resident_blocks_per_sm: 16
+    registers_32bit_per_sm: 65536
+    max_registers_32bit_per_thread: 255
+    max_shared_memory_per_sm_kb: 64
+    max_shared_memory_per_block_kb: 64
+    l1_shared_combined_kb: 96
+    tensor_core_generation: 2
+    notes: Lower thread/warp residency per SM than Volta/Ampere datacenter.
+    source: cuda_programming_guide_compute_capabilities
+  "8.0":
+    architecture_family: Ampere
+    warp_size: 32
+    max_threads_per_block: 1024
+    max_threads_per_sm: 2048
+    max_warps_per_sm: 64
+    max_resident_blocks_per_sm: 32
+    registers_32bit_per_sm: 65536
+    max_registers_32bit_per_thread: 255
+    max_shared_memory_per_sm_kb: 164
+    max_shared_memory_per_block_kb: 163
+    l1_shared_combined_kb: 192
+    tensor_core_generation: 3
+    async_copy_support: true
+    notes: A100-style profile; cp.async and large shared memory are important for tiled kernels.
+    source: cuda_programming_guide_compute_capabilities
+  "8.6":
+    architecture_family: Ampere
+    warp_size: 32
+    max_threads_per_block: 1024
+    max_threads_per_sm: 1536
+    max_warps_per_sm: 48
+    max_resident_blocks_per_sm: 16
+    registers_32bit_per_sm: 65536
+    max_registers_32bit_per_thread: 255
+    max_shared_memory_per_sm_kb: 100
+    max_shared_memory_per_block_kb: 99
+    l1_shared_combined_kb: 128
+    tensor_core_generation: 3
+    async_copy_support: true
+    notes: GA10x profile; lower residency and shared memory than A100.
+    source: cuda_programming_guide_compute_capabilities
+  "8.7":
+    architecture_family: Ampere
+    warp_size: 32
+    max_threads_per_block: 1024
+    max_threads_per_sm: 2048
+    max_warps_per_sm: 64
+    max_resident_blocks_per_sm: 32
+    registers_32bit_per_sm: 65536
+    max_registers_32bit_per_thread: 255
+    max_shared_memory_per_sm_kb: 164
+    max_shared_memory_per_block_kb: 163
+    l1_shared_combined_kb: 192
+    tensor_core_generation: 3
+    async_copy_support: true
+    notes: Embedded Ampere profile such as Orin-class devices.
+    source: cuda_programming_guide_compute_capabilities
+  "8.9":
+    architecture_family: Ada
+    warp_size: 32
+    max_threads_per_block: 1024
+    max_threads_per_sm: 1536
+    max_warps_per_sm: 48
+    max_resident_blocks_per_sm: 24
+    registers_32bit_per_sm: 65536
+    max_registers_32bit_per_thread: 255
+    max_shared_memory_per_sm_kb: 100
+    max_shared_memory_per_block_kb: 99
+    l1_shared_combined_kb: 128
+    tensor_core_generation: 4
+    async_copy_support: true
+    notes: Ada profile; large L2 on AD10x changes memory bottleneck interpretation.
+    source: cuda_programming_guide_compute_capabilities
+  "9.0":
+    architecture_family: Hopper
+    warp_size: 32
+    max_threads_per_block: 1024
+    max_threads_per_sm: 2048
+    max_warps_per_sm: 64
+    max_resident_blocks_per_sm: 32
+    registers_32bit_per_sm: 65536
+    max_registers_32bit_per_thread: 255
+    max_shared_memory_per_sm_kb: 228
+    max_shared_memory_per_block_kb: 227
+    l1_shared_combined_kb: 256
+    tensor_core_generation: 4
+    async_copy_support: true
+    tma_support: true
+    wgmma_support: true
+    thread_block_clusters: true
+    notes: Hopper profile; inspect TMA/WGMMA utilization, cluster launch, and distributed shared memory when used.
+    source: cuda_programming_guide_compute_capabilities
+  "10.x":
+    architecture_family: Blackwell
+    warp_size: 32
+    max_threads_per_block: 1024
+    max_threads_per_sm: 2048
+    max_warps_per_sm: 64
+    max_resident_blocks_per_sm: 32
+    registers_32bit_per_sm: 65536
+    max_registers_32bit_per_thread: 255
+    max_shared_memory_per_sm_kb: 228
+    max_shared_memory_per_block_kb: 227
+    l1_shared_combined_kb: 256
+    tensor_core_generation: 5
+    async_copy_support: true
+    tma_support: true
+    wgmma_support: true
+    fp4_support: true
+    notes: Blackwell datacenter profile; prefer profiler field names for exact metric availability.
+    source: cuda_programming_guide_compute_capabilities
+  "12.x":
+    architecture_family: Blackwell
+    warp_size: 32
+    max_threads_per_block: 1024
+    max_threads_per_sm: 1536
+    max_warps_per_sm: 48
+    max_resident_blocks_per_sm: 24
+    registers_32bit_per_sm: 65536
+    max_registers_32bit_per_thread: 255
+    max_shared_memory_per_sm_kb: 100
+    max_shared_memory_per_block_kb: 99
+    l1_shared_combined_kb: 128
+    tensor_core_generation: 5
+    async_copy_support: true
+    fp4_support: true
+    notes: Blackwell client/workstation class profile where public SKU specifics vary.
+    source: cuda_programming_guide_compute_capabilities
+
+architectures:
+  Tesla:
+    years: "2006-2010"
+    representative_chips: [G80, GT200]
+    profiling_relevance: legacy
+  Fermi:
+    years: "2010-2012"
+    representative_chips: [GF100, GF110]
+    profiling_relevance: legacy_cache_and_shared_memory
+  Kepler:
+    years: "2012-2015"
+    representative_chips: [GK104, GK110, GK210]
+    profiling_relevance: large_smx_register_occupancy
+  Maxwell:
+    years: "2014-2016"
+    representative_chips: [GM107, GM204, GM200]
+    profiling_relevance: resident_block_limit_and_cache_behavior
+  Pascal:
+    years: "2016-2018"
+    representative_chips: [GP100, GP102, GP104, GP106]
+    profiling_relevance: hbm2_vs_gddr5x_memory_bound_analysis
+  Volta:
+    years: "2017-2019"
+    representative_chips: [GV100]
+    profiling_relevance: tensor_core_generation_1_and_independent_thread_scheduling
+  Turing:
+    years: "2018-2020"
+    representative_chips: [TU102, TU104, TU106, TU117]
+    profiling_relevance: tensor_core_generation_2_and_lower_threads_per_sm
+  Ampere:
+    years: "2020-2022"
+    representative_chips: [GA100, GA102, GA104, GA106, GA10B]
+    profiling_relevance: tf32_tensor_cores_cp_async_large_shared_memory
+  Ada:
+    years: "2022-2024"
+    representative_chips: [AD102, AD103, AD104, AD106, AD107]
+    profiling_relevance: large_l2_cache_and_fourth_gen_tensor_cores
+  Hopper:
+    years: "2022-2025"
+    representative_chips: [GH100]
+    profiling_relevance: wgmma_tma_clusters_dsm_hbm3
+  Blackwell:
+    years: "2024-"
+    representative_chips: [GB100, GB102, GB202, GB203, GB205, GB206, GB207]
+    profiling_relevance: fp4_fp8_transformer_engine_wgmma_tma_dual_die_datacenter
+
+chips:
+  G80:
+    architecture: Tesla
+    compute_capability: "1.0"
+    full_sm_count: 16
+    cuda_cores_per_sm: 8
+    l2_cache_mb: null
+    memory_types: [GDDR3]
+    notes: Legacy chip, retained for taxonomy completeness.
+  GT200:
+    architecture: Tesla
+    compute_capability: "1.3"
+    full_sm_count: 30
+    cuda_cores_per_sm: 8
+    l2_cache_mb: null
+    memory_types: [GDDR3]
+  GF100:
+    architecture: Fermi
+    compute_capability: "2.0"
+    full_sm_count: 16
+    cuda_cores_per_sm: 32
+    l2_cache_mb: 0.768
+    memory_types: [GDDR5]
+  GF110:
+    architecture: Fermi
+    compute_capability: "2.0"
+    full_sm_count: 16
+    cuda_cores_per_sm: 32
+    l2_cache_mb: 0.768
+    memory_types: [GDDR5]
+  GK104:
+    architecture: Kepler
+    compute_capability: "3.0"
+    full_sm_count: 8
+    sm_name: SMX
+    cuda_cores_per_sm: 192
+    l2_cache_mb: 0.512
+    memory_types: [GDDR5]
+  GK110:
+    architecture: Kepler
+    compute_capability: "3.5"
+    full_sm_count: 15
+    sm_name: SMX
+    cuda_cores_per_sm: 192
+    l2_cache_mb: 1.5
+    memory_types: [GDDR5]
+  GM204:
+    architecture: Maxwell
+    compute_capability: "5.2"
+    full_sm_count: 16
+    sm_name: SMM
+    cuda_cores_per_sm: 128
+    l2_cache_mb: 2
+    memory_types: [GDDR5]
+  GM200:
+    architecture: Maxwell
+    compute_capability: "5.2"
+    full_sm_count: 24
+    sm_name: SMM
+    cuda_cores_per_sm: 128
+    l2_cache_mb: 3
+    memory_types: [GDDR5]
+  GP100:
+    architecture: Pascal
+    compute_capability: "6.0"
+    full_sm_count: 60
+    cuda_cores_per_sm: 64
+    l2_cache_mb: 4
+    memory_types: [HBM2]
+  GP102:
+    architecture: Pascal
+    compute_capability: "6.1"
+    full_sm_count: 30
+    cuda_cores_per_sm: 128
+    l2_cache_mb: 3
+    memory_types: [GDDR5X]
+  GV100:
+    architecture: Volta
+    compute_capability: "7.0"
+    full_sm_count: 84
+    cuda_cores_per_sm: 64
+    tensor_cores_per_sm: 8
+    l2_cache_mb: 6
+    memory_types: [HBM2]
+  TU102:
+    architecture: Turing
+    compute_capability: "7.5"
+    full_sm_count: 72
+    cuda_cores_per_sm: 64
+    tensor_cores_per_sm: 8
+    l2_cache_mb: 6
+    memory_types: [GDDR6]
+  GA100:
+    architecture: Ampere
+    compute_capability: "8.0"
+    full_sm_count: 128
+    cuda_cores_per_sm: 64
+    tensor_cores_per_sm: 4
+    l2_cache_mb: 40
+    memory_types: [HBM2, HBM2e]
+  GA102:
+    architecture: Ampere
+    compute_capability: "8.6"
+    full_sm_count: 84
+    cuda_cores_per_sm: 128
+    tensor_cores_per_sm: 4
+    l2_cache_mb: 6
+    memory_types: [GDDR6X]
+  GA10B:
+    architecture: Ampere
+    compute_capability: "8.7"
+    full_sm_count: 16
+    cuda_cores_per_sm: 128
+    tensor_cores_per_sm: 4
+    l2_cache_mb: 4
+    memory_types: [LPDDR5]
+  AD102:
+    architecture: Ada
+    compute_capability: "8.9"
+    full_sm_count: 144
+    cuda_cores_per_sm: 128
+    tensor_cores_per_sm: 4
+    l2_cache_mb: 96
+    l1_total_mb_full_chip: 18
+    register_file_mb_full_chip: 36
+    memory_types: [GDDR6X]
+    source: nvidia_ada_whitepaper
+  AD103:
+    architecture: Ada
+    compute_capability: "8.9"
+    full_sm_count: 80
+    cuda_cores_per_sm: 128
+    tensor_cores_per_sm: 4
+    l2_cache_mb: 64
+    memory_types: [GDDR6X]
+  AD104:
+    architecture: Ada
+    compute_capability: "8.9"
+    full_sm_count: 60
+    cuda_cores_per_sm: 128
+    tensor_cores_per_sm: 4
+    l2_cache_mb: 48
+    memory_types: [GDDR6X, GDDR6]
+  GH100:
+    architecture: Hopper
+    compute_capability: "9.0"
+    full_sm_count: 132
+    gpc_count: 8
+    tpc_count: 66
+    cuda_cores_per_sm: 128
+    tensor_cores_per_sm: 4
+    l2_cache_mb: 50
+    l1_shared_combined_kb: 256
+    memory_types: [HBM3, HBM2e]
+    source: nvidia_hopper_architecture_blog
+  GB100:
+    architecture: Blackwell
+    compute_capability: "10.x"
+    full_sm_count: null
+    cuda_cores_per_sm: null
+    tensor_cores_per_sm: null
+    l2_cache_mb: null
+    memory_types: [HBM3e]
+    chip_to_chip_interconnect_tbps: 10
+    transistor_count_billion: 208
+    source: nvidia_blackwell_architecture
+  GB202:
+    architecture: Blackwell
+    compute_capability: "12.x"
+    full_sm_count: null
+    cuda_cores_per_sm: 128
+    tensor_cores_per_sm: 4
+    l2_cache_mb: null
+    memory_types: [GDDR7]
+
+products:
+  Tesla_V100_SXM2_32GB:
+    architecture: Volta
+    chip: GV100
+    compute_capability: "7.0"
+    sm_count: 80
+    cuda_cores: 5120
+    tensor_cores: 640
+    memory_capacity_gb: 32
+    memory_type: HBM2
+    memory_bandwidth_gbps: 900
+    l2_cache_mb: 6
+    tdp_watts: 300
+    profile_notes: Use Tensor Core utilization and shared/L1 behavior; independent thread scheduling may affect warp-synchronous code.
+  Tesla_V100_PCIe_16GB:
+    architecture: Volta
+    chip: GV100
+    compute_capability: "7.0"
+    sm_count: 80
+    cuda_cores: 5120
+    tensor_cores: 640
+    memory_capacity_gb: 16
+    memory_type: HBM2
+    memory_bandwidth_gbps: 900
+    l2_cache_mb: 6
+    tdp_watts: 250
+  NVIDIA_A100_SXM4_80GB:
+    architecture: Ampere
+    chip: GA100
+    compute_capability: "8.0"
+    sm_count: 108
+    cuda_cores: 6912
+    tensor_cores: 432
+    memory_capacity_gb: 80
+    memory_type: HBM2e
+    memory_bandwidth_gbps: 2039
+    l2_cache_mb: 40
+    tdp_watts: 400
+    profile_notes: Check cp.async opportunities, TF32/Tensor Core usage, and large shared memory occupancy limits.
+  NVIDIA_A100_PCIe_40GB:
+    architecture: Ampere
+    chip: GA100
+    compute_capability: "8.0"
+    sm_count: 108
+    cuda_cores: 6912
+    tensor_cores: 432
+    memory_capacity_gb: 40
+    memory_type: HBM2
+    memory_bandwidth_gbps: 1555
+    l2_cache_mb: 40
+    tdp_watts: 250
+  NVIDIA_H100_SXM5_80GB:
+    architecture: Hopper
+    chip: GH100
+    compute_capability: "9.0"
+    sm_count: 132
+    cuda_cores: 16896
+    tensor_cores: 528
+    memory_capacity_gb: 80
+    memory_type: HBM3
+    memory_bandwidth_gbps: 3350
+    l2_cache_mb: 50
+    l1_shared_combined_kb_per_sm: 256
+    tdp_watts: 700
+    profile_notes: Inspect WGMMA/TMA, thread-block clusters, distributed shared memory, and HBM bandwidth.
+    source: nvidia_hopper_architecture_blog
+  NVIDIA_H100_PCIe_80GB:
+    architecture: Hopper
+    chip: GH100
+    compute_capability: "9.0"
+    sm_count: 114
+    cuda_cores: 14592
+    tensor_cores: 456
+    memory_capacity_gb: 80
+    memory_type: HBM2e
+    memory_bandwidth_gbps: 2000
+    l2_cache_mb: 50
+    l1_shared_combined_kb_per_sm: 256
+    tdp_watts: 350
+  NVIDIA_H200_SXM_141GB:
+    architecture: Hopper
+    chip: GH100
+    compute_capability: "9.0"
+    sm_count: 132
+    cuda_cores: 16896
+    tensor_cores: 528
+    memory_capacity_gb: 141
+    memory_type: HBM3e
+    memory_bandwidth_gbps: 4800
+    l2_cache_mb: 50
+    tdp_watts: 700
+  NVIDIA_B200_SXM_180GB:
+    architecture: Blackwell
+    chip: GB100
+    compute_capability: "10.x"
+    sm_count: null
+    cuda_cores: null
+    tensor_cores: null
+    memory_capacity_gb: 180
+    memory_type: HBM3e
+    memory_bandwidth_gbps: 8000
+    l2_cache_mb: null
+    tdp_watts: null
+    fp4_tensor_core_support: true
+    fp8_tensor_core_support: true
+    profile_notes: Use runtime profiler metadata for SM and cache details; focus on FP4/FP8 Tensor Core path and HBM3e bandwidth.
+    source: nvidia_blackwell_architecture
+  GeForce_RTX_3090:
+    architecture: Ampere
+    chip: GA102
+    compute_capability: "8.6"
+    sm_count: 82
+    cuda_cores: 10496
+    tensor_cores: 328
+    memory_capacity_gb: 24
+    memory_type: GDDR6X
+    memory_bandwidth_gbps: 936
+    l2_cache_mb: 6
+    tdp_watts: 350
+  GeForce_RTX_4090:
+    architecture: Ada
+    chip: AD102
+    compute_capability: "8.9"
+    sm_count: 128
+    cuda_cores: 16384
+    tensor_cores: 512
+    memory_capacity_gb: 24
+    memory_type: GDDR6X
+    memory_bandwidth_gbps: 1008
+    l2_cache_mb: 72
+    tdp_watts: 450
+    profile_notes: Large L2 can hide some DRAM pressure; distinguish L2-bound from DRAM-bound.
+  RTX_6000_Ada:
+    architecture: Ada
+    chip: AD102
+    compute_capability: "8.9"
+    sm_count: 142
+    cuda_cores: 18176
+    tensor_cores: 568
+    memory_capacity_gb: 48
+    memory_type: GDDR6_ECC
+    memory_bandwidth_gbps: 960
+    l2_cache_mb: 96
+    tdp_watts: 300
+  GeForce_RTX_5090:
+    architecture: Blackwell
+    chip: GB202
+    compute_capability: "12.x"
+    sm_count: null
+    cuda_cores: null
+    tensor_cores: null
+    memory_capacity_gb: 32
+    memory_type: GDDR7
+    memory_bandwidth_gbps: null
+    l2_cache_mb: null
+    tdp_watts: null
+    profile_notes: Fill exact SM/cache values from runtime metadata or vendor datasheet before final peak-normalized conclusions.
+  RTX_PRO_6000_Blackwell:
+    architecture: Blackwell
+    chip: GB202
+    compute_capability: "12.x"
+    sm_count: null
+    cuda_cores: null
+    tensor_cores: null
+    memory_capacity_gb: 96
+    memory_type: GDDR7_ECC
+    memory_bandwidth_gbps: null
+    l2_cache_mb: null
+    tdp_watts: null
+    profile_notes: Use runtime profiler metadata for SM/cache details; do not infer from GeForce SKU.
+
+profile_implications:
+  occupancy:
+    required_fields:
+      - compute_capability
+      - max_threads_per_sm
+      - max_warps_per_sm
+      - max_resident_blocks_per_sm
+      - registers_32bit_per_sm
+      - max_shared_memory_per_sm_kb
+    report_rule: >
+      When theoretical occupancy is low, cite the exact limiting resource: registers, shared memory,
+      block count, thread count, or warp count. If achieved occupancy is much lower than theoretical,
+      inspect workload imbalance, launch count, early exits, and scheduler statistics.
+  memory_bandwidth:
+    required_fields:
+      - memory_type
+      - memory_bandwidth_gbps
+      - l2_cache_mb
+    report_rule: >
+      Compare DRAM throughput to product-level bandwidth. If L2 throughput is high but DRAM throughput
+      is moderate, classify as L2/cache pressure rather than pure DRAM bandwidth bound.
+  tensor_compute:
+    required_fields:
+      - tensor_core_generation
+      - compute_capability
+    report_rule: >
+      Matrix-heavy kernels must show expected tensor instruction family for the architecture:
+      HMMA on Volta/Turing/Ampere, WGMMA on Hopper/Blackwell when using warp-group kernels.
+  source_hotspots:
+    required_fields:
+      - source_mapping_available
+      - sass_available
+    report_rule: >
+      Every primary bottleneck should map to at least one source line, SASS opcode family, or a clear
+      explanation why source attribution was unavailable.

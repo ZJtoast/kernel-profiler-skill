@@ -1,0 +1,53 @@
+schema_version: 1.0
+default_enabled: false
+random_variation_tolerance_pct: 2.0
+rules:
+  memory_bandwidth_bound:
+    enabled_by_default: false
+    severity: high
+    require_any:
+      - metric: memory_throughput_pct
+        op: ">="
+        value: 70
+      - metric: dram_throughput_pct
+        op: ">="
+        value: 70
+    require_all:
+      - metric: sm_throughput_pct
+        op: "<"
+        value: 70
+    evidence_text: "Memory pipeline is closer to peak than SM compute throughput."
+    next_actions: ["collect MemoryWorkloadAnalysis", "inspect L2/DRAM split", "map load/store hotspots"]
+  compute_bound:
+    enabled_by_default: false
+    severity: high
+    require_all:
+      - metric: sm_throughput_pct
+        op: ">="
+        value: 70
+      - metric: memory_throughput_pct
+        op: "<"
+        value: 70
+    evidence_text: "SM compute resources are closer to peak than memory resources."
+    next_actions: ["collect ComputeWorkloadAnalysis", "inspect InstructionStats", "check tensor/FMA utilization"]
+  occupancy_resource_bound:
+    enabled_by_default: false
+    severity: medium
+    require_all:
+      - metric: theoretical_occupancy_pct
+        op: "<"
+        value: 50
+    evidence_text: "Theoretical occupancy is low; inspect register/shared-memory/block limits."
+    next_actions: ["collect LaunchStats", "collect Occupancy", "check registers per thread and dynamic shared memory"]
+  latency_or_scheduler_bound:
+    enabled_by_default: false
+    severity: medium
+    require_all:
+      - metric: sm_throughput_pct
+        op: "<"
+        value: 50
+      - metric: memory_throughput_pct
+        op: "<"
+        value: 50
+    evidence_text: "Both SM and memory throughput are low; inspect eligible warps, stalls, synchronization, and launch size."
+    next_actions: ["collect SchedulerStats", "collect WarpStateStats", "collect SourceCounters"]
