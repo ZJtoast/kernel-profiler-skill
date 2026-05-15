@@ -66,7 +66,7 @@ The agent should convert that request into a reproducible profiling run:
 2. Resolve the target command from the repository when it is not provided. Typical search locations are `README`, `CMakeLists.txt`, `Makefile`, `build/`, `bin/`, `examples/`, benchmark scripts, and project run scripts.
 3. Generate `profile-target.yaml` by calling `scripts/generate_profile_target.py`.
 4. Use the kernel name directly as the initial filter. The default generated filter for `hgemm_byzj_v0` is `.*hgemm_byzj_v0.*`.
-5. Run `scripts/ncu_collect_kernel_profile.sh --stages basic,speed-of-light` first, inspect `details/metrics_summary.json`, then run only the evidence-justified follow-up stages such as `memory`, `compute`, `occupancy`, `roofline`, or `source`.
+5. Run `scripts/ncu_collect_kernel_profile.sh --stages auto`: the collector profiles `basic`, inspects `details/metrics_summary.json`, then runs one evidence-justified follow-up stage such as `memory`, `compute`, `occupancy`, or `speed-of-light`. Use `--stages all` only when explicitly requested.
 6. Generate source hotspots, comparison, and visual reports with the existing scripts when requested.
 7. Write the final artifacts under `./profile/<kernel_name>_<profile_id>/`.
 
@@ -160,18 +160,19 @@ Some profiler counters require elevated privileges. Two execution modes are supp
 | Mode | Purpose |
 |---|---|
 | `none` | Run without sudo. |
-| `full_sudo` | Run the exact selected `ncu` path through `sudo -n`; requires root or narrow `NOPASSWD` sudoers access. |
+| `full_sudo` | Run the active environment's `ncu` through `sudo -n`; requires root or narrow `NOPASSWD` access for the default `ncu` path detected by the agent. |
 
-Plaintext password storage is not implemented. Passwords must not be written into YAML, scripts, logs, environment variables, shell history, generated commands, reports, or files such as `profile/sudokey`. If `ncu` requires sudo, the agent should show the NOPASSWD guide and require the user to configure the exact `ncu` path for the CUDA environment being profiled.
+Plaintext password storage is not implemented. Passwords must not be written into YAML, scripts, logs, environment variables, shell history, generated commands, reports, or files such as `profile/sudokey`. If `ncu` requires sudo, the agent should stop the profile, show the NOPASSWD guide, and use the collector-detected default `ncu` path for the CUDA environment being profiled.
 
 On multi-CUDA servers, keep profiling with the same configured `ncu` path:
 
 ```bash
 scripts/ncu_collect_kernel_profile.sh \
-  --ncu-bin /usr/local/cuda-12.4/bin/ncu \
   --sudo \
   ...
 ```
+
+Only pass `--ncu-bin /usr/local/cuda-12.4/bin/ncu` when sudo `secure_path` prevents `sudo -n ncu` from resolving the active CUDA environment.
 
 ### Metric extraction
 
@@ -365,7 +366,7 @@ Controls profile depth and output location.
 | `enable_source_mapping` | Enables source/SASS/PTX attribution when available. |
 | `enable_visual_report` | Enables visual report generation. |
 | `extra_profiler_options` | Backend-specific extra options. |
-| `ncu_bin` | Nsight Compute CLI path; use the exact NOPASSWD-configured path in `full_sudo` mode. |
+| `ncu_bin` | Nsight Compute CLI command, default `ncu`; use an absolute path only for sudo `secure_path` issues or an explicit non-default CUDA environment. |
 | `output_root` | Root directory for generated profile folders. |
 
 ### `privilege`
@@ -450,7 +451,7 @@ scripts/ncu_collect_kernel_profile.sh \
   --launch-skip 10 \
   --launch-count 1 \
   --output-dir ./profile/hgemm_byzj_v0_20260515_120000 \
-  --stages basic,speed-of-light
+  --stages auto
 ```
 
 Then run targeted stages only when justified by the first pass, for example:
@@ -466,7 +467,7 @@ scripts/ncu_collect_kernel_profile.sh \
   --stages memory,source
 ```
 
-The collector exports raw CSV files and runs compact metric extraction automatically when raw metrics are available. Manual retry:
+The collector writes raw CSV files directly, does not generate `.ncu-rep`, and runs compact metric extraction automatically when raw metrics are available. Manual retry:
 
 ```bash
 python3 scripts/extract_ncu_metrics.py \
@@ -507,7 +508,7 @@ scripts/ncu_collect_kernel_profile.sh \
   --launch-skip 20 \
   --launch-count 1 \
   --output-dir ./profile/hgemm_byzj_v0_20260515_120000 \
-  --stages basic,speed-of-light
+  --stages auto
 ```
 
 For final Triton evidence, keep the profiled launch window stable: warm up JIT, avoid collecting autotune candidates, synchronize around measured loops, and fix kernel configs when possible.
@@ -521,13 +522,13 @@ profile/<kernel_name>_<profile_id>/
 ├── final_report.md
 ├── run_manifest.yaml
 ├── details/
-│   ├── 01_basic.*
-│   ├── 02_speed_of_light.*
-│   ├── 03_memory.*
-│   ├── 04_compute.*
-│   ├── 05_occupancy_scheduler.*
-│   ├── 06_roofline.*
-│   ├── 07_source.*
+│   ├── 01_basic_raw.csv
+│   ├── 02_speed_of_light_raw.csv
+│   ├── 03_memory_raw.csv
+│   ├── 04_compute_raw.csv
+│   ├── 05_occupancy_launch_raw.csv
+│   ├── 06_roofline_raw.csv
+│   ├── 07_source_raw.csv
 │   ├── metrics_summary.json
 │   ├── metrics_extracted.jsonl
 │   └── source_hotspots.csv

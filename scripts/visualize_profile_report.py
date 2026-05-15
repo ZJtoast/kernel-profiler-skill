@@ -100,20 +100,58 @@ def parse_csv_rows(path: Path) -> Iterable[List[str]]:
     return rows
 
 
+def last_number(row: Iterable[Any]) -> Optional[float]:
+    for cell in reversed(list(row)):
+        val = number(cell)
+        if val is not None:
+            return val
+    return None
+
+
+def metric_keys(text: str) -> List[str]:
+    return [key for key, pat in RAW_PATTERNS.items() if pat.search(text)]
+
+
+def collect_columnar_rows(rows: List[List[str]]) -> Dict[str, List[float]]:
+    values: Dict[str, List[float]] = {}
+    for idx, header in enumerate(rows):
+        metric_cols: List[Tuple[int, str]] = []
+        seen = set()
+        for col, cell in enumerate(header):
+            for key in metric_keys(str(cell)):
+                token = (col, key)
+                if token not in seen:
+                    metric_cols.append(token)
+                    seen.add(token)
+        if not metric_cols:
+            continue
+        for col, key in metric_cols:
+            vals = []
+            for row in rows[idx + 1:idx + 25]:
+                if col >= len(row):
+                    continue
+                val = number(row[col])
+                if val is not None:
+                    vals.append(val)
+            if vals:
+                values.setdefault(key, []).extend(vals)
+    return values
+
+
 def collect_raw_metrics(details: Path) -> Dict[str, float]:
     values: Dict[str, List[float]] = {}
     for csv_path in sorted(details.glob("*_raw.csv")):
-        for row in parse_csv_rows(csv_path):
+        rows = list(parse_csv_rows(csv_path))
+        columnar_values = collect_columnar_rows(rows)
+        values.update({k: values.get(k, []) + v for k, v in columnar_values.items()})
+        columnar_keys = set(columnar_values)
+        for row in rows:
             joined = " ".join(map(str, row))
-            val = None
-            for cell in reversed(row):
-                val = number(cell)
-                if val is not None:
-                    break
+            val = last_number(row)
             if val is None:
                 continue
-            for key, pat in RAW_PATTERNS.items():
-                if pat.search(joined):
+            for key in metric_keys(joined):
+                if key not in columnar_keys:
                     values.setdefault(key, []).append(val)
     return {k: sum(v) / len(v) for k, v in values.items() if v}
 
@@ -121,8 +159,9 @@ def collect_raw_metrics(details: Path) -> Dict[str, float]:
 def load_metrics(report_dir: Path) -> Dict[str, float]:
     details = report_dir / "details"
     metrics = {k: v for k, v in read_json(details / "metrics_summary.json").items() if number(v) is not None}
-    if not metrics:
-        metrics = collect_raw_metrics(details)
+    raw_metrics = collect_raw_metrics(details)
+    if raw_metrics:
+        metrics.update(raw_metrics)
     return {k: float(number(v)) for k, v in metrics.items() if number(v) is not None}
 
 

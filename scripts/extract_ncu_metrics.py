@@ -14,8 +14,8 @@ KEY_PATTERNS = {
     "sm_throughput_pct": re.compile(r"sm.*throughput.*pct|sm__throughput", re.I),
     "memory_throughput_pct": re.compile(r"memory.*throughput.*pct|dram__throughput|mem.*throughput", re.I),
     "dram_throughput_pct": re.compile(r"dram.*throughput.*pct|dram__throughput", re.I),
-    "l2_throughput_pct": re.compile(r"l2|lts__throughput", re.I),
-    "l1tex_throughput_pct": re.compile(r"l1tex|l1/tex", re.I),
+    "l2_throughput_pct": re.compile(r"l2.*throughput.*pct|lts__throughput", re.I),
+    "l1tex_throughput_pct": re.compile(r"l1tex.*throughput|l1/tex.*throughput|l1tex__throughput", re.I),
     "achieved_occupancy_pct": re.compile(r"achieved.*occupancy", re.I),
     "theoretical_occupancy_pct": re.compile(r"theoretical.*occupancy", re.I),
     "registers_per_thread": re.compile(r"registers per thread|reg.*thread", re.I),
@@ -48,19 +48,75 @@ def parse_rows(path: Path):
             rows.append(parsed)
     return rows
 
-def extract(rows):
+def last_num(row):
+    for cell in reversed(row):
+        val=num(cell)
+        if val is not None:
+            return val
+    return None
+
+def matching_keys(text):
+    return [name for name, pat in KEY_PATTERNS.items() if pat.search(text)]
+
+def extract_columnar(rows):
+    """Parse NCU CSV pages where metric names are column headers.
+
+    Recent raw exports can place metrics such as sm__throughput... in the CSV
+    header and the values in later rows. Treating those headers as normal rows
+    can produce pseudo-values from unrelated launch columns, so this path
+    extracts values by column index and lets callers prefer it over row-wise
+    fallback for overlapping metrics.
+    """
+    metrics={}
+    raw=[]
+    for idx, header in enumerate(rows):
+        metric_cols=[]
+        seen=set()
+        for col, cell in enumerate(header):
+            for key in matching_keys(str(cell)):
+                token=(col,key)
+                if token not in seen:
+                    metric_cols.append(token)
+                    seen.add(token)
+        if not metric_cols:
+            continue
+        window=rows[idx+1:idx+25]
+        if not window:
+            continue
+        for col, key in metric_cols:
+            vals=[]
+            for row in window:
+                if col >= len(row):
+                    continue
+                val=num(row[col])
+                if val is not None:
+                    vals.append(val)
+            if vals:
+                metrics.setdefault(key,[]).extend(vals)
+                raw.append({"metric_class":key,"column":col,"header":header[col],"values":vals})
+    return metrics, raw
+
+def extract_rowwise(rows):
     metrics={}
     raw=[]
     for r in rows:
         joined=' '.join(r)
-        val=None
-        for cell in reversed(r):
-            val=num(cell)
-            if val is not None: break
-        for name,pat in KEY_PATTERNS.items():
-            if pat.search(joined):
-                metrics.setdefault(name,[]).append(val)
-                raw.append({"metric_class":name,"row":r,"value":val})
+        val=last_num(r)
+        if val is None:
+            continue
+        for name in matching_keys(joined):
+            metrics.setdefault(name,[]).append(val)
+            raw.append({"metric_class":name,"row":r,"value":val})
+    return metrics, raw
+
+def extract(rows):
+    metrics, raw = extract_columnar(rows)
+    column_keys=set(metrics)
+    row_metrics, row_raw = extract_rowwise(rows)
+    for key, vals in row_metrics.items():
+        if key not in metrics:
+            metrics[key]=vals
+    raw.extend(item for item in row_raw if item["metric_class"] not in column_keys)
     summary={k: (mean([x for x in v if x is not None]) if any(x is not None for x in v) else None) for k,v in metrics.items()}
     return summary, raw
 
@@ -86,5 +142,5 @@ def main():
     (out/'metrics_extracted.jsonl').write_text('\n'.join(json.dumps(x, ensure_ascii=False) for x in raw)+'\n', encoding='utf-8')
     if ns.mode=='discovery':
         (out/'kernel_candidates.json').write_text(json.dumps(discover_kernel_candidates(rows), indent=2), encoding='utf-8')
-    print(json.dumps(summary, indent=2))
+    print(f"Wrote {out/'metrics_summary.json'}")
 if __name__=='__main__': main()

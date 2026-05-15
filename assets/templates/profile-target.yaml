@@ -42,7 +42,7 @@ profiling:
   enable_source_mapping: true
   enable_visual_report: false
   extra_profiler_options: []
-  ncu_bin: "ncu"                   # set exact path, e.g. /usr/local/cuda-12.4/bin/ncu, after NOPASSWD setup
+  ncu_bin: "ncu"                   # keep default; use an absolute path only for sudo secure_path or non-default CUDA
   output_root: "./profile"
 
 privilege:

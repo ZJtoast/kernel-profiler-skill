@@ -30,8 +30,8 @@
 
 | Artifact | Path | Status |
 |---|---|---|
-| Basic report | details/01_basic.* |  |
-| SpeedOfLight report | details/02_speed_of_light.* |  |
+| Basic report | details/01_basic_raw.csv |  |
+| SpeedOfLight report | details/02_speed_of_light_raw.csv |  |
 | Memory report | details/03_memory.* |  |
 | Compute report | details/04_compute.* |  |
 | Occupancy/launch report | details/05_occupancy_launch.* |  |

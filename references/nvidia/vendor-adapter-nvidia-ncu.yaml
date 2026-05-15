@@ -3,14 +3,14 @@ backend_id: nvidia-ncu
 profiler_name: NVIDIA Nsight Compute
 cli: ncu
 gui: ncu-ui
-report_extensions: [.ncu-rep]
-raw_export_modes: [csv, raw_page, import_report]
+report_extensions: [.csv]
+raw_export_modes: [csv, raw_page_stdout]
 requires_privileged_counters_possible: true
 sudo_strategy:
   default_policy: none
   allowed_policies: [none, full_sudo]
   password_handling: never_store_never_pipe
-  privileged_command_policy: exact_ncu_path_nopasswd
+  privileged_command_policy: detected_default_ncu_path_nopasswd
 capabilities:
   can_discover_kernel: true
   can_filter_kernel: true
@@ -45,5 +45,5 @@ commands:
   list_sections: "ncu --list-sections"
   list_sets: "ncu --list-sets"
   query_metrics: "ncu --query-metrics-mode all --query-metrics"
-  export_raw: "ncu --import <report.ncu-rep> --page raw --csv"
-  export_source: "ncu --import <report.ncu-rep> --page source --print-source sass"
+  export_raw: "ncu <sections> --page raw --csv <target> > <stage>_raw.csv"
+  export_source: "ncu --section SourceCounters --page source --print-source sass --csv <target> > 07_source_raw.csv"

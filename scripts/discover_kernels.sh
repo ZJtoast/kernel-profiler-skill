@@ -12,13 +12,15 @@ out=pathlib.Path(sys.argv[2]); out.mkdir(parents=True, exist_ok=True)
 t=cfg['target']; p=cfg.get('profiling',{}); priv=cfg.get('privilege',{})
 cmd=[t['executable'], *map(str,t.get('args',[]))]
 ncu_bin=str(p.get('ncu_bin') or 'ncu')
+detected=ncu_bin
 try:
     resolved=subprocess.check_output(['bash','-lc',f'command -v {shlex.quote(ncu_bin)} || true'], text=True).strip()
     if resolved:
-        ncu_bin=resolved
-    real=subprocess.check_output(['bash','-lc',f'readlink -f {shlex.quote(ncu_bin)} 2>/dev/null || printf %s {shlex.quote(ncu_bin)}'], text=True).strip()
-    if real:
-        ncu_bin=real
+        detected=resolved
+    if '/' in detected or '/' in ncu_bin:
+        real=subprocess.check_output(['bash','-lc',f'readlink -f {shlex.quote(detected)} 2>/dev/null || printf %s {shlex.quote(detected)}'], text=True).strip()
+        if real:
+            detected=real
 except Exception:
     pass
 base=[ncu_bin,'--set','basic','--launch-count','1','--page','raw','--csv']
@@ -28,7 +30,8 @@ prefix=[]
 if priv.get('mode') == 'full_sudo':
     prefix=['sudo','-n']
 (pathlib.Path(out)/'00_discovery_command.sh').write_text(' '.join(map(shlex.quote,prefix+full))+'\n')
-print(' '.join(map(shlex.quote,prefix+full)))
+(pathlib.Path(out)/'00_discovery_ncu_path.txt').write_text(detected+'\n', encoding='utf-8')
+print(f"[discovery] command written to {pathlib.Path(out)/'00_discovery_command.sh'}")
 PY
 # Execute after command is printed so commands can be inspected before collection.
 set +e
@@ -36,31 +39,33 @@ bash "$OUTDIR/00_discovery_command.sh" > "$OUTDIR/00_discovery_raw.csv" 2> "$OUT
 status=$?
 set -e
 if [[ "$status" -ne 0 ]] && grep -Eqi "ERR_NVGPUCTRPERM|password is required|a password is required|permission|not permitted|Operation not permitted" "$OUTDIR/00_discovery_stderr.txt"; then
-  NCU_PATH=$(awk '{for (i=1; i<=NF; i++) if ($i ~ /(^|\/)ncu$/) {print $i; exit}}' "$OUTDIR/00_discovery_command.sh")
+  NCU_PATH=$(cat "$OUTDIR/00_discovery_ncu_path.txt" 2>/dev/null || true)
   cat >&2 <<GUIDE
 
 NCU discovery 需要 sudo 权限，但当前 agent 不能交互式输入 sudo 密码。
-请先为当前 CUDA 环境中的精确 ncu 路径配置 NOPASSWD，然后在下一次对话中重新发起 profile。
+本次 profile 已停止。请先为 agent 已确认的当前 CUDA 环境 ncu 路径配置窄范围 NOPASSWD，然后在下一次对话中重新发起 profile。
 
-步骤 1：在你要 profile 的 CUDA 环境中找到 ncu。
+agent 检测到的默认 ncu 绝对路径：
 
-  which ncu
-  readlink -f \$(which ncu)
+  ${NCU_PATH:-/absolute/path/to/active/cuda/bin/ncu}
 
-步骤 2：创建 sudoers 规则。
+步骤 1：创建 sudoers 规则。
 
   sudo visudo -f /etc/sudoers.d/kernel-profiler-ncu
 
-写入一行，替换 USERNAME 和 ncu 路径：
+写入一行，替换 USERNAME，并使用上面 agent 检测到的 ncu 绝对路径：
 
   USERNAME ALL=(root) NOPASSWD: ${NCU_PATH:-/absolute/path/to/selected/cuda/bin/ncu}
 
-步骤 3：验证：
+USERNAME 是 \`whoami\` 输出的登录用户名。不要写真实用户名到本 skill 的文件里。
+
+步骤 2：验证：
 
   sudo -n ${NCU_PATH:-/absolute/path/to/selected/cuda/bin/ncu} --version
+  sudo -n ncu --version
   sudo -n ${NCU_PATH:-/absolute/path/to/selected/cuda/bin/ncu} --list-sections
 
-步骤 4：多 CUDA 环境必须固定同一个 ncu。后续通过 profiling.ncu_bin 或 --ncu-bin 使用同一路径。
+步骤 3：多 CUDA 环境必须固定同一个 ncu。后续 profile 前加载同一个 CUDA module / PATH，让 \`ncu\` 仍然解析到上面路径。
 
 不要配置 NOPASSWD: ALL，也不要把 sudo 密码写入文件、命令、日志或 profile/sudokey。
 本次 profile 已停止；配置完成后请在下一次对话中重新发起 profile。

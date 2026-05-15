@@ -66,7 +66,7 @@ Copy-Item -Recurse -Force . "$env:USERPROFILE\.codex\skills\kernel-profiler-skil
 2. 如果请求没有给出可执行文件或命令，从当前仓库中解析 benchmark 入口，例如 `README`、`CMakeLists.txt`、`Makefile`、`build/`、`bin/`、`examples/`、benchmark 脚本和 run 脚本。
 3. 调用 `scripts/generate_profile_target.py` 生成 `profile-target.yaml`。
 4. 直接用 kernel 名称生成初始 filter。`hgemm_byzj_v0` 默认生成 `.*hgemm_byzj_v0.*`。
-5. 先调用 `scripts/ncu_collect_kernel_profile.sh --stages basic,speed-of-light`，读取 `details/metrics_summary.json` 后，再只运行证据支持的后续阶段，例如 `memory`、`compute`、`occupancy`、`roofline` 或 `source`。
+5. 调用 `scripts/ncu_collect_kernel_profile.sh --stages auto`，collector 会先跑 `basic`，读取 `details/metrics_summary.json`，再只补跑一个由证据支持的阶段，例如 `memory`、`compute`、`occupancy` 或 `speed-of-light`。只有用户明确要求时才跑 `--stages all`。
 6. 需要 source hotspot、对比或可视化时，继续调用现有脚本生成。
 7. 最终产物写入 `./profile/<kernel_name>_<profile_id>/`。
 
@@ -126,7 +126,7 @@ Discovery 只在没有 kernel 名称、过滤失败或过滤结果歧义时使�
 
 ### 分阶段 Nsight Compute 采集
 
-标准 collector 支持用 `--stages` 选择 profile 阶段。Agent 自主执行时，默认先做较轻的首轮采集，再按证据补跑目标阶段：
+标准 collector 支持用 `--stages` 选择 profile 阶段。Agent 自主执行时，默认 `--stages auto`：先做 `basic`，从 compact metrics 中判断方向，再按证据补跑一个目标阶段：
 
 1. `basic`：快速检查 launch、occupancy 和高层利用率。
 2. `SpeedOfLight`：判断 compute 方向还是 memory 方向。
@@ -160,18 +160,19 @@ Triton 支持包括：
 | 模式                   | 说明                                                                    |
 | ---------------------- | ----------------------------------------------------------------------- |
 | `none`               | 不使用 sudo。                                                           |
-| `full_sudo`          | 使用 `sudo -n` 执行精确 `ncu` 路径；要求 root 或 sudoers 已配置窄范围 `NOPASSWD`。 |
+| `full_sudo`          | 使用 `sudo -n` 执行当前环境的 `ncu`；要求 root 或 sudoers 已为 agent 检测到的默认 `ncu` 绝对路径配置窄范围 `NOPASSWD`。 |
 
-不实现明文 sudo 密码保存。密码不得进入 YAML、脚本、日志、环境变量、shell history、命令、报告或 `profile/sudokey` 之类的文件。遇到必须 sudo 才能使用 `ncu` 的情况，agent 应输出 [Nsight Compute NOPASSWD 配置指南](docs/ncu-nopasswd-guide.zh-CN.md)，要求用户为当前 CUDA 环境中的精确 `ncu` 路径配置 `NOPASSWD`。
+不实现明文 sudo 密码保存。密码不得进入 YAML、脚本、日志、环境变量、shell history、命令、报告或 `profile/sudokey` 之类的文件。遇到必须 sudo 才能使用 `ncu` 的情况，agent 应立刻停止本次 profile，输出 [Nsight Compute NOPASSWD 配置指南](docs/ncu-nopasswd-guide.zh-CN.md)，并使用 collector 已检测到的默认 `ncu` 绝对路径指导用户配置 `NOPASSWD`。
 
-多 CUDA 环境中，配置了哪个 `ncu` 路径，后续 profile 就必须持续使用同一个路径：
+多 CUDA 环境中，配置了哪个 `ncu` 路径，后续 profile 前就必须加载同一个 CUDA module / PATH，使脚本里的 `ncu` 仍然解析到同一路径：
 
 ```bash
 scripts/ncu_collect_kernel_profile.sh \
-  --ncu-bin /usr/local/cuda-12.4/bin/ncu \
   --sudo \
   ...
 ```
+
+只有当 sudo `secure_path` 导致 `sudo -n ncu` 无法解析时，才显式传入同一个绝对路径 `--ncu-bin /usr/local/cuda-12.4/bin/ncu`。
 
 ### 指标抽取
 
@@ -354,7 +355,7 @@ schema 版本号，当前为 `3.0`。
 | `enable_source_mapping`  | 可用时开启 source/SASS/PTX 归因。       |
 | `enable_visual_report`   | 开启可视化报告。                        |
 | `extra_profiler_options` | backend-specific 额外参数。             |
-| `ncu_bin`                | Nsight Compute CLI 路径；`full_sudo` 模式建议使用配置过 NOPASSWD 的绝对路径。 |
+| `ncu_bin`                | Nsight Compute CLI 命令，默认 `ncu`；只有 sudo `secure_path` 或非默认 CUDA 环境需要时才写绝对路径。 |
 | `output_root`            | profile 输出根目录。                    |
 
 ### `privilege`
@@ -364,7 +365,7 @@ schema 版本号，当前为 `3.0`。
 | 字段                                | 含义                                                                |
 | ----------------------------------- | ------------------------------------------------------------------- |
 | `mode`                            | `none` 或 `full_sudo`。                                      |
-| `full_sudo_policy`                | 限制 sudo 只能用于 root 或精确 `ncu` 路径的 `NOPASSWD`。       |
+| `full_sudo_policy`                | 限制 sudo 只能用于 root 或 agent 检测到的默认 `ncu` 绝对路径的 `NOPASSWD`。       |
 | `password_storage`                | 必须保持 `forbidden`。                                            |
 | `forbidden`                       | 禁止保存、读取、打印、管道传输或自动键入 sudo 密码。             |
 | `forbidden`                       | 密码和权限使用的禁止项。                                            |
@@ -440,10 +441,10 @@ scripts/ncu_collect_kernel_profile.sh \
   --launch-skip 10 \
   --launch-count 1 \
   --output-dir ./profile/hgemm_byzj_v0_20260515_120000 \
-  --stages basic,speed-of-light
+  --stages auto
 ```
 
-再按首轮证据补跑目标阶段，例如：
+如果你已经有明确证据，也可以手动只补跑目标阶段，例如：
 
 ```bash
 scripts/ncu_collect_kernel_profile.sh \
@@ -456,7 +457,7 @@ scripts/ncu_collect_kernel_profile.sh \
   --stages memory,source
 ```
 
-collector 会在存在 raw metrics 时自动导出 CSV 并抽取 compact metrics。需要手动重试时：
+collector 会直接生成 raw CSV，不生成 `.ncu-rep`，并在存在 raw metrics 时自动抽取 compact metrics。需要手动重试时：
 
 ```bash
 python3 scripts/extract_ncu_metrics.py \
@@ -488,7 +489,7 @@ scripts/ncu_collect_kernel_profile.sh \
   --launch-skip 20 \
   --launch-count 1 \
   --output-dir ./profile/hgemm_byzj_v0_20260515_120000 \
-  --stages basic,speed-of-light
+  --stages auto
 ```
 
 ## 输出结构
@@ -498,13 +499,13 @@ profile/<kernel_name>_<profile_id>/
 ├── final_report.md
 ├── run_manifest.yaml
 ├── details/
-│   ├── 01_basic.*
-│   ├── 02_speed_of_light.*
-│   ├── 03_memory.*
-│   ├── 04_compute.*
-│   ├── 05_occupancy_scheduler.*
-│   ├── 06_roofline.*
-│   ├── 07_source.*
+│   ├── 01_basic_raw.csv
+│   ├── 02_speed_of_light_raw.csv
+│   ├── 03_memory_raw.csv
+│   ├── 04_compute_raw.csv
+│   ├── 05_occupancy_launch_raw.csv
+│   ├── 06_roofline_raw.csv
+│   ├── 07_source_raw.csv
 │   ├── metrics_summary.json
 │   ├── metrics_extracted.jsonl
 │   └── source_hotspots.csv
